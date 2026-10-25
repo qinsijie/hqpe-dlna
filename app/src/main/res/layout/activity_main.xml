@@ -190,7 +190,7 @@
                         android:layout_height="wrap_content"
                         android:text="选择目标应用..."
                         android:textSize="13sp"
-                        style="@style/Widget.MaterialComponents.Button.TonalButton" />
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
                 </LinearLayout>
 
             </LinearLayout>
