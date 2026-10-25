@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
 import android.media.projection.MediaProjection
@@ -35,6 +36,10 @@ class MediaCaptureService : Service() {
     private var captureThread: Thread? = null
     private val isCapturing = AtomicBoolean(false)
     private var localHttpServer: LocalHttpServer? = null
+
+    // Phone speaker auto-mute tracking
+    private var previousMediaVolume: Int? = null
+    private var isMutedByService = false
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
@@ -133,6 +138,44 @@ class MediaCaptureService : Service() {
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, serviceType)
     }
 
+    private fun muteDeviceAudio() {
+        try {
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            previousMediaVolume = currentVol
+            if (currentVol > 0) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
+                } else {
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
+                }
+                isMutedByService = true
+                Log.i(tag, "Muted phone STREAM_MUSIC output to avoid duplicate sound (previous volume: $currentVol)")
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to mute STREAM_MUSIC: ${e.message}")
+        }
+    }
+
+    private fun restoreDeviceAudio() {
+        if (isMutedByService) {
+            try {
+                val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
+                }
+                previousMediaVolume?.let { vol ->
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, vol, 0)
+                }
+                Log.i(tag, "Restored phone STREAM_MUSIC to volume $previousMediaVolume")
+            } catch (e: Exception) {
+                Log.w(tag, "Failed to restore STREAM_MUSIC: ${e.message}")
+            }
+            isMutedByService = false
+            previousMediaVolume = null
+        }
+    }
+
     @SuppressLint("MissingPermission")
     private fun startCapture(resultCode: Int, resultData: Intent) {
         if (isCapturing.get()) return
@@ -152,12 +195,19 @@ class MediaCaptureService : Service() {
             mediaProjection = projection
             projection.registerCallback(projectionCallback, Handler(Looper.getMainLooper()))
 
-            // 3. AudioPlaybackCaptureConfiguration for Media playback audio
+            // 3. AudioPlaybackCaptureConfiguration:
+            // Match USAGE_MEDIA, USAGE_UNKNOWN and USAGE_GAME to ensure third-party music players
+            // (e.g., LX Music/Flutter audio tracks) are captured properly.
             val captureConfig = AudioPlaybackCaptureConfiguration.Builder(projection)
                 .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                .addMatchingUsage(AudioAttributes.USAGE_GAME)
                 .build()
 
-            // 4. Audio format: 48000Hz, 16bit, Stereo
+            // 4. Mute phone physical speaker output so only HQPE plays audio
+            muteDeviceAudio()
+
+            // 5. Audio format: 48000Hz, 16bit, Stereo
             val sampleRate = 48000
             val channelConfig = AudioFormat.CHANNEL_IN_STEREO
             val audioFormat = AudioFormat.ENCODING_PCM_16BIT
@@ -188,14 +238,47 @@ class MediaCaptureService : Service() {
             isCapturing.set(true)
             _isStreamingState.value = true
 
-            // 5. Start audio reading loop
+            // 6. Start audio reading loop with throughput & zero-data monitoring
             captureThread = Thread({
                 Log.i(tag, "Audio capture loop started")
                 val buffer = ByteArray(4096)
+                var bytesReadSecond = 0L
+                var lastLogTime = System.currentTimeMillis()
+                var consecutiveZeroChunks = 0
+
                 while (isCapturing.get()) {
                     val bytesRead = record.read(buffer, 0, buffer.size)
                     if (bytesRead > 0) {
+                        bytesReadSecond += bytesRead
+
+                        // Check if chunk is all zeros
+                        var isAllZeros = true
+                        for (i in 0 until bytesRead) {
+                            if (buffer[i] != 0.toByte()) {
+                                isAllZeros = false
+                                break
+                            }
+                        }
+
+                        if (isAllZeros) {
+                            consecutiveZeroChunks++
+                        } else {
+                            consecutiveZeroChunks = 0
+                        }
+
                         localHttpServer?.writeAudioData(buffer, 0, bytesRead)
+
+                        val now = System.currentTimeMillis()
+                        val elapsed = now - lastLogTime
+                        if (elapsed >= 1000) {
+                            val rate = bytesReadSecond * 1000 / elapsed
+                            Log.i(tag, "AudioCapture: $rate bytes/sec throughput (nominal: 192000 B/s)")
+                            if (consecutiveZeroChunks >= 20) {
+                                Log.w(tag, "AudioCapture warning: Captured $consecutiveZeroChunks consecutive zero chunks! App may be idle, paused, or using exclusive audio mode.")
+                            }
+                            bytesReadSecond = 0
+                            lastLogTime = now
+                        }
                     } else if (bytesRead < 0) {
                         Log.w(tag, "AudioRecord read error code: $bytesRead")
                         break
@@ -212,11 +295,14 @@ class MediaCaptureService : Service() {
 
     private fun stopCapture() {
         if (!isCapturing.getAndSet(false)) {
+            restoreDeviceAudio()
             stopSelf()
             return
         }
 
         _isStreamingState.value = false
+
+        restoreDeviceAudio()
 
         try {
             captureThread?.interrupt()
@@ -253,6 +339,7 @@ class MediaCaptureService : Service() {
 
     override fun onDestroy() {
         stopCapture()
+        restoreDeviceAudio()
         super.onDestroy()
     }
 

@@ -26,6 +26,7 @@ class LocalHttpServer(private val port: Int = 8088) {
     )
 
     private val subscribers = CopyOnWriteArrayList<ClientSubscriber>()
+    private val crlf = "\r\n".toByteArray(Charsets.US_ASCII)
 
     @Synchronized
     fun start() {
@@ -59,6 +60,11 @@ class LocalHttpServer(private val port: Int = 8088) {
     private fun handleClient(socket: Socket) {
         try {
             socket.tcpNoDelay = true
+            socket.sendBufferSize = 65536
+            try {
+                socket.trafficClass = 0x10 // IPTOS_LOWDELAY
+            } catch (_: Exception) {}
+
             val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
             val rawOut = socket.getOutputStream()
             val out = BufferedOutputStream(rawOut, 16384)
@@ -68,7 +74,7 @@ class LocalHttpServer(private val port: Int = 8088) {
                 return
             }
 
-            Log.d(tag, "Incoming request: $requestLine from ${socket.remoteSocketAddress}")
+            Log.i(tag, "Incoming request: $requestLine from ${socket.remoteSocketAddress}")
 
             // Consume remaining headers
             var line: String? = reader.readLine()
@@ -95,12 +101,16 @@ class LocalHttpServer(private val port: Int = 8088) {
                 }
 
                 if (method == "GET") {
-                    sendChunkedWavHeaders(out)
-                    // Send WAV header as the first chunk
-                    val wavHeader = createWavHeader(48000, 2, 16)
-                    sendChunk(out, wavHeader, 0, wavHeader.size)
-
                     val subscriber = ClientSubscriber(socket, out)
+
+                    synchronized(subscriber.outputStream) {
+                        sendChunkedWavHeaders(out)
+                        // Send 44-byte WAV header as the initial chunk
+                        val wavHeader = createWavHeader(48000, 2, 16)
+                        sendChunk(out, wavHeader, 0, wavHeader.size)
+                        out.flush()
+                    }
+
                     subscribers.add(subscriber)
                     Log.i(tag, "Client subscribed to audio stream: ${socket.remoteSocketAddress}. Total clients: ${subscribers.size}")
 
@@ -162,8 +172,6 @@ class LocalHttpServer(private val port: Int = 8088) {
         out.write(response.toByteArray(Charsets.US_ASCII))
     }
 
-    private val crlf = "\r\n".toByteArray(Charsets.US_ASCII)
-
     private fun sendChunk(out: OutputStream, data: ByteArray, offset: Int, length: Int) {
         val hexSize = (Integer.toHexString(length) + "\r\n").toByteArray(Charsets.US_ASCII)
         out.write(hexSize)
@@ -177,9 +185,11 @@ class LocalHttpServer(private val port: Int = 8088) {
 
         for (subscriber in subscribers) {
             try {
-                sendChunk(subscriber.outputStream, buffer, offset, length)
+                synchronized(subscriber.outputStream) {
+                    sendChunk(subscriber.outputStream, buffer, offset, length)
+                }
             } catch (e: Exception) {
-                Log.d(tag, "Failed to write audio chunk to ${subscriber.socket.remoteSocketAddress}, closing socket")
+                Log.d(tag, "Failed to write audio chunk to ${subscriber.socket.remoteSocketAddress}, closing socket: ${e.message}")
                 subscribers.remove(subscriber)
                 try { subscriber.socket.close() } catch (_: Exception) {}
             }
@@ -199,9 +209,10 @@ class LocalHttpServer(private val port: Int = 8088) {
 
         for (subscriber in subscribers) {
             try {
-                // Send terminal 0-size chunk
-                subscriber.outputStream.write("0\r\n\r\n".toByteArray(Charsets.US_ASCII))
-                subscriber.outputStream.flush()
+                synchronized(subscriber.outputStream) {
+                    subscriber.outputStream.write("0\r\n\r\n".toByteArray(Charsets.US_ASCII))
+                    subscriber.outputStream.flush()
+                }
             } catch (_: Exception) {}
             try {
                 subscriber.socket.close()
@@ -216,48 +227,50 @@ class LocalHttpServer(private val port: Int = 8088) {
 
     companion object {
         fun createWavHeader(sampleRate: Int = 48000, channels: Int = 2, bitsPerSample: Int = 16): ByteArray {
-            val byteRate = sampleRate * channels * (bitsPerSample / 8)
-            val blockAlign = channels * (bitsPerSample / 8)
+            val byteRate = sampleRate * channels * (bitsPerSample / 8) // 192000
+            val blockAlign = channels * (bitsPerSample / 8) // 4
             val header = ByteArray(44)
             val bb = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
 
-            // "RIFF"
+            // "RIFF" chunk descriptor
             bb.put('R'.code.toByte())
             bb.put('I'.code.toByte())
             bb.put('F'.code.toByte())
             bb.put('F'.code.toByte())
-            // ChunkSize: 0xFFFFFFFF for streaming unknown/infinite size
+            // ChunkSize: 0xFFFFFFFF (-1) for infinite/unknown live stream
             bb.putInt(-1)
-            // "WAVE"
+            // Format: "WAVE"
             bb.put('W'.code.toByte())
             bb.put('A'.code.toByte())
             bb.put('V'.code.toByte())
             bb.put('E'.code.toByte())
-            // "fmt "
+
+            // "fmt " subchunk
             bb.put('f'.code.toByte())
             bb.put('m'.code.toByte())
             bb.put('t'.code.toByte())
             bb.put(' '.code.toByte())
-            // Subchunk1Size = 16 for PCM
+            // Subchunk1Size = 16 (for standard PCM)
             bb.putInt(16)
-            // AudioFormat = 1 (PCM)
+            // AudioFormat = 1 (Linear PCM uncompressed)
             bb.putShort(1.toShort())
-            // NumChannels
+            // NumChannels = 2 (Stereo)
             bb.putShort(channels.toShort())
-            // SampleRate
+            // SampleRate = 48000
             bb.putInt(sampleRate)
-            // ByteRate
+            // ByteRate = 192000 (SampleRate * NumChannels * BitsPerSample/8)
             bb.putInt(byteRate)
-            // BlockAlign
+            // BlockAlign = 4 (NumChannels * BitsPerSample/8)
             bb.putShort(blockAlign.toShort())
-            // BitsPerSample
+            // BitsPerSample = 16
             bb.putShort(bitsPerSample.toShort())
-            // "data"
+
+            // "data" subchunk
             bb.put('d'.code.toByte())
             bb.put('a'.code.toByte())
             bb.put('t'.code.toByte())
             bb.put('a'.code.toByte())
-            // Subchunk2Size: 0xFFFFFFFF for streaming unknown/infinite size
+            // Subchunk2Size: 0xFFFFFFFF (-1) for streaming data
             bb.putInt(-1)
 
             return header
