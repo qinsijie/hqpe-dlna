@@ -20,27 +20,29 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import java.net.Inet4Address
-import java.net.NetworkInterface
+import kotlinx.coroutines.withContext
 import java.net.URL
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var tvLocalIp: TextView
+    private lateinit var etLocalIp: TextInputEditText
+    private lateinit var btnRefreshIp: MaterialButton
     private lateinit var tvStreamUrl: TextView
     private lateinit var etHqpeIp: TextInputEditText
     private lateinit var etHqpePort: TextInputEditText
     private lateinit var tvControlUrl: TextView
     private lateinit var tvStatus: TextView
-    private lateinit var btnStart: Button
-    private lateinit var btnStop: Button
+    private lateinit var btnStart: MaterialButton
+    private lateinit var btnStop: MaterialButton
 
     // DLNA 扫描与设备选择
-    private lateinit var btnScanDevices: Button
+    private lateinit var btnScanDevices: MaterialButton
     private lateinit var tvScanHint: TextView
     private lateinit var spinnerDevices: Spinner
     private val discoveredDevices = mutableListOf<UpnpDevice>()
@@ -74,7 +76,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        tvLocalIp = findViewById(R.id.tv_local_ip)
+        etLocalIp = findViewById(R.id.et_local_ip)
+        btnRefreshIp = findViewById(R.id.btn_refresh_ip)
         tvStreamUrl = findViewById(R.id.tv_stream_url)
         etHqpeIp = findViewById(R.id.et_hqpe_ip)
         etHqpePort = findViewById(R.id.et_hqpe_port)
@@ -91,11 +94,28 @@ class MainActivity : AppCompatActivity() {
 
         initDeviceSpinner()
         loadSavedSettings()
-        updateNetworkInfo()
         updateControlUrlDisplay()
 
-        etHqpeIp.doAfterTextChanged { updateControlUrlDisplay() }
-        etHqpePort.doAfterTextChanged { updateControlUrlDisplay() }
+        if (etLocalIp.text.isNullOrBlank()) {
+            autoDetectLocalIp(showToast = false)
+        } else {
+            updateStreamUrlDisplay()
+        }
+
+        etHqpeIp.doAfterTextChanged {
+            updateControlUrlDisplay()
+        }
+        etHqpePort.doAfterTextChanged {
+            updateControlUrlDisplay()
+        }
+        etLocalIp.doAfterTextChanged {
+            updateStreamUrlDisplay()
+            saveSettings()
+        }
+
+        btnRefreshIp.setOnClickListener {
+            autoDetectLocalIp(showToast = true)
+        }
 
         btnScanDevices.setOnClickListener {
             performSsdpScan()
@@ -114,7 +134,8 @@ class MainActivity : AppCompatActivity() {
                 btnStart.isEnabled = !isStreaming
                 btnStop.isEnabled = isStreaming
                 btnScanDevices.isEnabled = !isStreaming
-                if (!isStreaming && tvStatus.text.contains("正在向 HQPE 推流")) {
+                btnRefreshIp.isEnabled = !isStreaming
+                if (!isStreaming && tvStatus.text.contains("正在向 HQPE 成功推流")) {
                     tvStatus.text = "状态: 投送已停止"
                 }
             }
@@ -123,7 +144,35 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        updateNetworkInfo()
+        if (etLocalIp.text.isNullOrBlank()) {
+            autoDetectLocalIp(showToast = false)
+        }
+    }
+
+    private fun autoDetectLocalIp(showToast: Boolean = false) {
+        val targetIp = etHqpeIp.text?.toString()?.trim()
+        val targetPort = etHqpePort.text?.toString()?.trim()?.toIntOrNull() ?: 80
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val detected = NetworkUtils.getLocalIpAddress(this@MainActivity, targetIp, targetPort)
+            withContext(Dispatchers.Main) {
+                etLocalIp.setText(detected)
+                updateStreamUrlDisplay()
+                saveSettings()
+                if (showToast) {
+                    Toast.makeText(this@MainActivity, "已探测并切换至本机局域网 IP: $detected", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun updateStreamUrlDisplay() {
+        val localIp = etLocalIp.text?.toString()?.trim().orEmpty()
+        tvStreamUrl.text = if (localIp.isNotEmpty()) {
+            "推流地址: http://$localIp:8088/stream.wav"
+        } else {
+            "推流地址: 请输入本机 IP"
+        }
     }
 
     private fun initDeviceSpinner() {
@@ -139,6 +188,8 @@ class MainActivity : AppCompatActivity() {
                     etHqpeIp.setText(device.ip)
                     etHqpePort.setText(device.port.toString())
                     updateControlUrlDisplay()
+                    // Re-probe local IP using the newly selected device's IP
+                    autoDetectLocalIp(showToast = false)
                     Toast.makeText(this@MainActivity, "已选择: ${device.friendlyName}", Toast.LENGTH_SHORT).show()
                 } else {
                     activeControlUrl = null
@@ -202,9 +253,14 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("hqpe_config", Context.MODE_PRIVATE)
         val savedIp = prefs.getString("hqpe_ip", "10.10.10.120")
         val savedPort = prefs.getString("hqpe_port", "49152")
+        val savedLocalIp = prefs.getString("hqpe_local_ip", null)
         activeControlUrl = prefs.getString("hqpe_control_url", null)
+
         etHqpeIp.setText(savedIp)
         etHqpePort.setText(savedPort)
+        if (!savedLocalIp.isNullOrBlank()) {
+            etLocalIp.setText(savedLocalIp)
+        }
     }
 
     private fun saveSettings() {
@@ -212,14 +268,9 @@ class MainActivity : AppCompatActivity() {
         prefs.edit()
             .putString("hqpe_ip", etHqpeIp.text?.toString()?.trim())
             .putString("hqpe_port", etHqpePort.text?.toString()?.trim())
+            .putString("hqpe_local_ip", etLocalIp.text?.toString()?.trim())
             .putString("hqpe_control_url", activeControlUrl)
             .apply()
-    }
-
-    private fun updateNetworkInfo() {
-        val localIp = getLocalIpAddress()
-        tvLocalIp.text = "本机 IP: $localIp"
-        tvStreamUrl.text = "推流地址: http://$localIp:8088/stream.wav"
     }
 
     private fun checkPermissionsAndStart() {
@@ -248,7 +299,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun startCaptureAndHqpePlayback(resultCode: Int, resultData: Intent) {
         val controlUrl = getEffectiveControlUrl()
-        val localIp = getLocalIpAddress()
+        val localIp = etLocalIp.text?.toString()?.trim().let {
+            if (it.isNullOrBlank()) NetworkUtils.getLocalIpAddress(this, etHqpeIp.text?.toString(), etHqpePort.text?.toString()?.toIntOrNull() ?: 80)
+            else it
+        }
         val streamUrl = "http://$localIp:8088/stream.wav"
 
         tvStatus.text = "状态: 正在启动音频捕获与 HTTP 服务..."
@@ -307,26 +361,5 @@ class MainActivity : AppCompatActivity() {
 
             tvStatus.text = "状态: 已停止投送"
         }
-    }
-
-    private fun getLocalIpAddress(): String {
-        try {
-            val interfaces = NetworkInterface.getNetworkInterfaces() ?: return "127.0.0.1"
-            for (intf in interfaces) {
-                if (intf.isLoopback || !intf.isUp) continue
-                val addrs = intf.inetAddresses
-                for (addr in addrs) {
-                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
-                        val host = addr.hostAddress ?: continue
-                        if (!host.startsWith("127.")) {
-                            return host
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return "127.0.0.1"
     }
 }

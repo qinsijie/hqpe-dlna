@@ -3,8 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
-    android:background="#F8F9FA">
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -18,7 +17,7 @@
             android:text="HQPE-DLNA 音频串流"
             android:textSize="22sp"
             android:textStyle="bold"
-            android:textColor="#212121"
+            android:textColor="?android:attr/textColorPrimary"
             android:layout_marginBottom="12dp" />
 
         <!-- 1. 目标设备卡片 (DLNA/UPnP 自动探测与控制端点) -->
@@ -49,14 +48,15 @@
                         android:text="目标设备 (HQPlayer)"
                         android:textSize="16sp"
                         android:textStyle="bold"
-                        android:textColor="#212121" />
+                        android:textColor="?android:attr/textColorPrimary" />
 
-                    <Button
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_scan_devices"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="扫描设备"
                         android:textSize="13sp"
+                        android:textColor="?android:attr/textColorPrimary"
                         style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
                 </LinearLayout>
 
@@ -66,7 +66,7 @@
                     android:layout_height="wrap_content"
                     android:text="支持 SSDP 自动发现并解析 AVTransport 控制端点"
                     android:textSize="12sp"
-                    android:textColor="#757575"
+                    android:textColor="?android:attr/textColorSecondary"
                     android:layout_marginBottom="8dp" />
 
                 <!-- 设备选择 Spinner -->
@@ -122,13 +122,13 @@
                     android:layout_height="wrap_content"
                     android:text="控制端点: 自动解析或默认"
                     android:textSize="12sp"
-                    android:textColor="#616161"
+                    android:textColor="?android:attr/textColorSecondary"
                     android:layout_marginTop="8dp" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 2. 本机状态与推流信息卡片 -->
+        <!-- 2. 本机推流地址设置卡片 (支持自动探测与手动调整) -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -143,12 +143,45 @@
                 android:padding="16dp">
 
                 <TextView
-                    android:id="@+id/tv_local_ip"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="本机 IP: 获取中..."
-                    android:textSize="14sp"
-                    android:textColor="#424242" />
+                    android:text="本机推流设置 (与 HQPE 同一局域网)"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:layout_marginBottom="10dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="本机局域网 IP (推流网卡出口)"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_local_ip"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textUri" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_refresh_ip"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="自动探测"
+                        android:textSize="13sp"
+                        android:layout_marginStart="8dp"
+                        android:textColor="?android:attr/textColorPrimary"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/tv_stream_url"
@@ -156,8 +189,7 @@
                     android:layout_height="wrap_content"
                     android:text="推流地址: 待就绪"
                     android:textSize="13sp"
-                    android:textColor="#616161"
-                    android:layout_marginTop="4dp" />
+                    android:textColor="?android:attr/textColorSecondary" />
 
                 <TextView
                     android:id="@+id/tv_status"
@@ -166,31 +198,36 @@
                     android:text="状态: 待机就绪"
                     android:textSize="15sp"
                     android:textStyle="bold"
-                    android:textColor="#1976D2"
-                    android:layout_marginTop="10dp" />
+                    android:textColor="#2196F3"
+                    android:layout_marginTop="12dp" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 3. 控制操作按钮 -->
-        <Button
+        <!-- 3. 控制操作按钮 (高对比度着色) -->
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_start"
             android:layout_width="match_parent"
             android:layout_height="54dp"
             android:text="开始投送音频"
             android:textSize="16sp"
+            android:textStyle="bold"
             android:textAllCaps="false"
-            android:layout_marginBottom="10dp" />
+            app:backgroundTint="@color/btn_start_background"
+            android:textColor="@color/btn_text_color"
+            android:layout_marginBottom="12dp" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_stop"
             android:layout_width="match_parent"
             android:layout_height="54dp"
             android:text="停止投送"
             android:textSize="16sp"
+            android:textStyle="bold"
             android:textAllCaps="false"
             android:enabled="false"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+            app:backgroundTint="@color/btn_stop_background"
+            android:textColor="@color/btn_text_color" />
 
     </LinearLayout>
 </ScrollView>
