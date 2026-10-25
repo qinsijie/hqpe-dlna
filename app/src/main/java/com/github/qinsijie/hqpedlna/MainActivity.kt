@@ -9,8 +9,12 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import android.view.animation.Animation
+import android.view.animation.LinearInterpolator
+import android.view.animation.RotateAnimation
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.ImageButton
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -43,7 +47,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnStop: MaterialButton
 
     // DLNA 扫描与设备选择
-    private lateinit var btnScanDevices: MaterialButton
+    private lateinit var btnScanDevices: ImageButton
     private lateinit var tvScanHint: TextView
     private lateinit var spinnerDevices: Spinner
     private val discoveredDevices = mutableListOf<UpnpDevice>()
@@ -138,6 +142,7 @@ class MainActivity : AppCompatActivity() {
                 btnStart.isEnabled = !isStreaming
                 btnStop.isEnabled = isStreaming
                 btnScanDevices.isEnabled = !isStreaming
+                btnScanDevices.alpha = if (isStreaming) 0.5f else 1.0f
                 btnRefreshIp.isEnabled = !isStreaming
                 if (!isStreaming && tvStatus.text.contains("正在向 HQPE 成功推流")) {
                     tvStatus.text = "状态: 投送已停止"
@@ -147,10 +152,10 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             MediaCaptureService.diagnostics.collectLatest { diag ->
-                val statusStr = if (diag.isRunning) "RUNNING" else "STOPPED"
-                val rateKb = diag.bytesPerSecond / 1024
+                val statusDot = if (diag.isRunning) "🟢 RUNNING" else "⚪ STOPPED"
+                val rateKb = String.format("%.1f", diag.bytesPerSecond / 1024.0)
                 val dbStr = String.format("%.1f", diag.rmsDecibels)
-                tvCaptureDiag.text = "采集状态: $statusStr | 速率: $rateKb KB/s | 振幅: $dbStr dB"
+                tvCaptureDiag.text = "$statusDot  |  $rateKb KB/s  |  $dbStr dB"
 
                 if (diag.errorMessage != null) {
                     tvDiagWarning.visibility = View.VISIBLE
@@ -200,7 +205,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun initDeviceSpinner() {
         val initialItems = listOf("手动输入 (默认)")
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, initialItems)
+        val adapter = ArrayAdapter(this, R.layout.item_spinner_selected, initialItems)
+        adapter.setDropDownViewResource(R.layout.item_spinner_dropdown)
         spinnerDevices.adapter = adapter
 
         spinnerDevices.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -245,28 +251,50 @@ class MainActivity : AppCompatActivity() {
         tvControlUrl.text = "控制端点: $url"
     }
 
+    private fun startScanAnimation() {
+        val rotate = RotateAnimation(
+            0f, 360f,
+            Animation.RELATIVE_TO_SELF, 0.5f,
+            Animation.RELATIVE_TO_SELF, 0.5f
+        ).apply {
+            duration = 900
+            repeatCount = Animation.INFINITE
+            interpolator = LinearInterpolator()
+        }
+        btnScanDevices.startAnimation(rotate)
+    }
+
+    private fun stopScanAnimation() {
+        btnScanDevices.clearAnimation()
+    }
+
     private fun performSsdpScan() {
         btnScanDevices.isEnabled = false
+        startScanAnimation()
         tvScanHint.text = "正在扫描局域网 MediaRenderer/HQPE..."
 
         lifecycleScope.launch {
-            val devices = SsdpScanner.scan(this@MainActivity, timeoutMs = 3500)
-            btnScanDevices.isEnabled = true
+            try {
+                val devices = SsdpScanner.scan(this@MainActivity, timeoutMs = 3500)
+                discoveredDevices.clear()
+                discoveredDevices.addAll(devices)
 
-            discoveredDevices.clear()
-            discoveredDevices.addAll(devices)
+                if (devices.isEmpty()) {
+                    tvScanHint.text = "未扫描到 DLNA 设备，可直接手动输入 IP 与端口"
+                    Toast.makeText(this@MainActivity, "未扫描到设备，可直接手动输入 IP 与端口", Toast.LENGTH_LONG).show()
+                } else {
+                    tvScanHint.text = "已扫描到 ${devices.size} 台媒体设备，已自动选择首选设备"
+                    val spinnerItems = mutableListOf("手动输入 (自定义)")
+                    spinnerItems.addAll(devices.map { "${it.friendlyName} (${it.ip}:${it.port})" })
 
-            if (devices.isEmpty()) {
-                tvScanHint.text = "未扫描到 DLNA 设备，请确认设备开启了 DLNA 并在同一局域网"
-                Toast.makeText(this@MainActivity, "未扫描到设备，可直接手动输入 IP 与端口", Toast.LENGTH_LONG).show()
-            } else {
-                tvScanHint.text = "已扫描到 ${devices.size} 台媒体设备，已自动选择首选设备"
-                val spinnerItems = mutableListOf("手动输入 (自定义)")
-                spinnerItems.addAll(devices.map { "${it.friendlyName} (${it.ip}:${it.port})" })
-
-                val adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, spinnerItems)
-                spinnerDevices.adapter = adapter
-                spinnerDevices.setSelection(1) // Auto-select the first discovered device
+                    val adapter = ArrayAdapter(this@MainActivity, R.layout.item_spinner_selected, spinnerItems)
+                    adapter.setDropDownViewResource(R.layout.item_spinner_dropdown)
+                    spinnerDevices.adapter = adapter
+                    spinnerDevices.setSelection(1) // Auto-select the first discovered device
+                }
+            } finally {
+                stopScanAnimation()
+                btnScanDevices.isEnabled = true
             }
         }
     }
