@@ -11,7 +11,6 @@ import android.os.Bundle
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
-import android.widget.Button
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -38,6 +37,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etHqpePort: TextInputEditText
     private lateinit var tvControlUrl: TextView
     private lateinit var tvStatus: TextView
+    private lateinit var tvCaptureDiag: TextView
+    private lateinit var tvDiagWarning: TextView
     private lateinit var btnStart: MaterialButton
     private lateinit var btnStop: MaterialButton
 
@@ -84,6 +85,8 @@ class MainActivity : AppCompatActivity() {
         etHqpePort = findViewById(R.id.et_hqpe_port)
         tvControlUrl = findViewById(R.id.tv_control_url)
         tvStatus = findViewById(R.id.tv_status)
+        tvCaptureDiag = findViewById(R.id.tv_capture_diag)
+        tvDiagWarning = findViewById(R.id.tv_diag_warning)
         btnStart = findViewById(R.id.btn_start)
         btnStop = findViewById(R.id.btn_stop)
 
@@ -141,6 +144,25 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        lifecycleScope.launch {
+            MediaCaptureService.diagnostics.collectLatest { diag ->
+                val statusStr = if (diag.isRunning) "RUNNING" else "STOPPED"
+                val rateKb = diag.bytesPerSecond / 1024
+                val dbStr = String.format("%.1f", diag.rmsDecibels)
+                tvCaptureDiag.text = "采集状态: $statusStr | 速率: $rateKb KB/s | 振幅: $dbStr dB"
+
+                if (diag.errorMessage != null) {
+                    tvDiagWarning.visibility = View.VISIBLE
+                    tvDiagWarning.text = "❌ 采集异常: ${diag.errorMessage}"
+                } else if (diag.isSilent) {
+                    tvDiagWarning.visibility = View.VISIBLE
+                    tvDiagWarning.text = "⚠️ 警告: 捕获到静音数据 (0x00)！当前播放器可能阻止了系统内录，请尝试更换播放器测试 (如网易云/QQ音乐/系统自带音乐)"
+                } else {
+                    tvDiagWarning.visibility = View.GONE
+                }
+            }
+        }
     }
 
     override fun onResume() {
@@ -189,7 +211,6 @@ class MainActivity : AppCompatActivity() {
                     etHqpeIp.setText(device.ip)
                     etHqpePort.setText(device.port.toString())
                     updateControlUrlDisplay()
-                    // Re-probe local IP using the newly selected device's IP
                     autoDetectLocalIp(showToast = false)
                     Toast.makeText(this@MainActivity, "已选择: ${device.friendlyName}", Toast.LENGTH_SHORT).show()
                 } else {
@@ -226,7 +247,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun performSsdpScan() {
         btnScanDevices.isEnabled = false
-        tvScanHint.text = "正在扫描局域网 UPnP/DLNA 渲染器 (SSDP)..."
+        tvScanHint.text = "正在扫描局域网 MediaRenderer/HQPE..."
 
         lifecycleScope.launch {
             val devices = SsdpScanner.scan(this@MainActivity, timeoutMs = 3500)
@@ -239,7 +260,7 @@ class MainActivity : AppCompatActivity() {
                 tvScanHint.text = "未扫描到 DLNA 设备，请确认设备开启了 DLNA 并在同一局域网"
                 Toast.makeText(this@MainActivity, "未扫描到设备，可直接手动输入 IP 与端口", Toast.LENGTH_LONG).show()
             } else {
-                tvScanHint.text = "扫描到 ${devices.size} 台设备，已自动选择首选设备"
+                tvScanHint.text = "已扫描到 ${devices.size} 台媒体设备，已自动选择首选设备"
                 val spinnerItems = mutableListOf("手动输入 (自定义)")
                 spinnerItems.addAll(devices.map { "${it.friendlyName} (${it.ip}:${it.port})" })
 

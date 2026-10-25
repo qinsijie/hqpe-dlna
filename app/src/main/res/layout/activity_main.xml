@@ -64,7 +64,7 @@
                     android:id="@+id/tv_scan_hint"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="支持 SSDP 自动发现并解析 AVTransport 控制端点"
+                    android:text="已过滤路由与NAS，仅展示 MediaRenderer/HQPE"
                     android:textSize="12sp"
                     android:textColor="?android:attr/textColorSecondary"
                     android:layout_marginBottom="8dp" />
@@ -132,7 +132,7 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="12dp"
             app:cardCornerRadius="10dp"
             app:cardElevation="2dp">
 
@@ -201,10 +201,65 @@
                     android:textColor="#2196F3"
                     android:layout_marginTop="12dp" />
 
+                <!-- 提示手动音量调整 -->
+                <TextView
+                    android:id="@+id/tv_mute_hint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="💡 提示: 若手机外放仍有声音 (部分系统限制应用静音)，请直接按手机音量键调低即可，不会影响 HQPE 抓流。"
+                    android:textSize="11sp"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:layout_marginTop="6dp" />
+
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 3. 控制操作按钮 (高对比度着色) -->
+        <!-- 3. 音频捕获实时诊断信息卡片 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardCornerRadius="10dp"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="音频捕获实时诊断 (Audio Diagnostics)"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:id="@+id/tv_capture_diag"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="采集状态: STOPPED | 速率: 0 KB/s | 振幅: -96.0 dB"
+                    android:textSize="13sp"
+                    android:textColor="?android:attr/textColorSecondary" />
+
+                <TextView
+                    android:id="@+id/tv_diag_warning"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#E53935"
+                    android:visibility="gone"
+                    android:layout_marginTop="6dp" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 4. 控制操作按钮 (高对比度着色) -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_start"
             android:layout_width="match_parent"

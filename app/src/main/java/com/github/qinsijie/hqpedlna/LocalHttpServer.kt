@@ -106,8 +106,6 @@ class LocalHttpServer(private val port: Int = 8088) {
                 }
 
                 if (method == "GET") {
-                    // Dual mode: Chunked mode enabled if explicitly requested via ?chunked=1 or TE header.
-                    // Default to continuous raw stream (no chunk framing) which is standard for DLNA/UPnP GStreamer/Rygel.
                     val isChunked = path.contains("chunked=1") || hasChunkedHeader
                     val wavHeader = createWavHeader(48000, 2, 16)
                     val subscriber = ClientSubscriber(socket, out, isChunked)
@@ -263,46 +261,56 @@ class LocalHttpServer(private val port: Int = 8088) {
             val header = ByteArray(44)
             val bb = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
 
-            // "RIFF" chunk descriptor
+            // 0-3: "RIFF" (ASCII Big-Endian)
             bb.put('R'.code.toByte())
             bb.put('I'.code.toByte())
             bb.put('F'.code.toByte())
             bb.put('F'.code.toByte())
-            // ChunkSize: 0 for unknown/unspecified streaming length (avoids 0xFFFFFFFF overflow)
-            bb.putInt(0)
-            // Format: "WAVE"
+
+            // 4-7: ChunkSize = 0x7FFFFFF7 (approx 2GB, in Little-Endian. Do NOT use 0 or PotPlayer aborts)
+            bb.putInt(0x7FFFFFF7)
+
+            // 8-11: "WAVE" (ASCII Big-Endian)
             bb.put('W'.code.toByte())
             bb.put('A'.code.toByte())
             bb.put('V'.code.toByte())
             bb.put('E'.code.toByte())
 
-            // "fmt " subchunk
+            // 12-15: "fmt " (ASCII Big-Endian)
             bb.put('f'.code.toByte())
             bb.put('m'.code.toByte())
             bb.put('t'.code.toByte())
             bb.put(' '.code.toByte())
-            // Subchunk1Size = 16 (for linear PCM)
+
+            // 16-19: Subchunk1Size = 16 (for linear PCM, Little-Endian int)
             bb.putInt(16)
-            // AudioFormat = 1 (Linear PCM uncompressed)
+
+            // 20-21: AudioFormat = 1 (Linear PCM uncompressed, Little-Endian short)
             bb.putShort(1.toShort())
-            // NumChannels = 2 (Stereo)
+
+            // 22-23: NumChannels = 2 (Stereo, Little-Endian short)
             bb.putShort(channels.toShort())
-            // SampleRate = 48000
+
+            // 24-27: SampleRate = 48000 (Little-Endian int)
             bb.putInt(sampleRate)
-            // ByteRate = 192000 (SampleRate * NumChannels * BitsPerSample/8)
+
+            // 28-31: ByteRate = 192000 (Little-Endian int)
             bb.putInt(byteRate)
-            // BlockAlign = 4 (NumChannels * BitsPerSample/8)
+
+            // 32-33: BlockAlign = 4 (Little-Endian short)
             bb.putShort(blockAlign.toShort())
-            // BitsPerSample = 16
+
+            // 34-35: BitsPerSample = 16 (Little-Endian short)
             bb.putShort(bitsPerSample.toShort())
 
-            // "data" subchunk
+            // 36-39: "data" (ASCII Big-Endian)
             bb.put('d'.code.toByte())
             bb.put('a'.code.toByte())
             bb.put('t'.code.toByte())
             bb.put('a'.code.toByte())
-            // Subchunk2Size: 0 for continuous live stream data (avoids 0xFFFFFFFF overflow)
-            bb.putInt(0)
+
+            // 40-43: Subchunk2Size = 0x7FFFFFF7 (approx 2GB data length, Little-Endian int)
+            bb.putInt(0x7FFFFFF7)
 
             return header
         }

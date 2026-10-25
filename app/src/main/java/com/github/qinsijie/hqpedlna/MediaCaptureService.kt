@@ -28,6 +28,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicBoolean
 
+data class CaptureDiagnostics(
+    val isRunning: Boolean = false,
+    val bytesPerSecond: Long = 0,
+    val rmsDecibels: Double = -96.0,
+    val isSilent: Boolean = false,
+    val errorMessage: String? = null
+)
+
 class MediaCaptureService : Service() {
 
     private val tag = "MediaCaptureService"
@@ -76,6 +84,7 @@ class MediaCaptureService : Service() {
                     val errMsg = "未获取到有效的录屏/录音授权结果，无法启动服务"
                     Log.e(tag, errMsg)
                     showToast(errMsg)
+                    _diagnostics.value = CaptureDiagnostics(errorMessage = errMsg)
                     stopSelf()
                 }
             }
@@ -153,10 +162,14 @@ class MediaCaptureService : Service() {
             val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
             previousMediaVolume = currentVol
             if (currentVol > 0) {
-                // Force volume level to 0 directly
                 audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
-                isMutedByService = true
-                Log.i(tag, "已将手机外放媒体音量强制置零 (原音量: $currentVol)")
+                val checkVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                if (checkVol == 0) {
+                    isMutedByService = true
+                    Log.i(tag, "已将手机外放媒体音量强制置零 (原音量: $currentVol)")
+                } else {
+                    Log.w(tag, "系统限制了 setStreamVolume(STREAM_MUSIC, 0)，当前外放音量仍为: $checkVol")
+                }
             }
         } catch (e: Exception) {
             Log.w(tag, "强制外放静音失败: ${e.message}")
@@ -194,6 +207,7 @@ class MediaCaptureService : Service() {
                 val errMsg = "获取 MediaProjection 失败，请确认系统录屏权限已允许"
                 Log.e(tag, errMsg)
                 showToast(errMsg)
+                _diagnostics.value = CaptureDiagnostics(errorMessage = errMsg)
                 stopCapture()
                 return
             }
@@ -234,6 +248,7 @@ class MediaCaptureService : Service() {
                 val errMsg = "AudioRecord 初始化失败 (state: ${record.state})，请检查权限与录屏状态"
                 Log.e(tag, errMsg)
                 showToast(errMsg)
+                _diagnostics.value = CaptureDiagnostics(errorMessage = errMsg)
                 stopCapture()
                 return
             }
@@ -245,6 +260,7 @@ class MediaCaptureService : Service() {
                     val errMsg = "AudioRecord 录音状态异常: ${record.recordingState}"
                     Log.e(tag, errMsg)
                     showToast(errMsg)
+                    _diagnostics.value = CaptureDiagnostics(errorMessage = errMsg)
                     stopCapture()
                     return
                 }
@@ -252,14 +268,16 @@ class MediaCaptureService : Service() {
                 val errMsg = "AudioRecord startRecording 失败: ${e.message}"
                 Log.e(tag, errMsg, e)
                 showToast(errMsg)
+                _diagnostics.value = CaptureDiagnostics(errorMessage = errMsg)
                 stopCapture()
                 return
             }
 
             isCapturing.set(true)
             _isStreamingState.value = true
+            _diagnostics.value = CaptureDiagnostics(isRunning = true)
 
-            // 6. Start audio reading loop
+            // 6. Start audio reading loop with throughput & RMS calculation
             captureThread = Thread({
                 Log.i(tag, "Audio capture loop started")
                 val buffer = ByteArray(4096)
@@ -267,19 +285,32 @@ class MediaCaptureService : Service() {
                 var lastLogTime = System.currentTimeMillis()
                 var consecutiveZeroChunks = 0
                 var logCounter = 0
+                var currentRmsDb = -96.0
 
                 while (isCapturing.get()) {
                     val bytesRead = record.read(buffer, 0, buffer.size)
                     if (bytesRead > 0) {
                         bytesReadSecond += bytesRead
 
-                        // Check if chunk is all zeros
+                        // Check zeros & calculate RMS
                         var isAllZeros = true
-                        for (i in 0 until bytesRead) {
-                            if (buffer[i] != 0.toByte()) {
+                        var sumSquares = 0.0
+                        var sampleCount = 0
+                        var i = 0
+                        while (i < bytesRead - 1) {
+                            val sample = (buffer[i + 1].toInt() shl 8) or (buffer[i].toInt() and 0xFF)
+                            val normalized = sample.toShort()
+                            if (normalized.toInt() != 0) {
                                 isAllZeros = false
-                                break
                             }
+                            sumSquares += normalized.toDouble() * normalized.toDouble()
+                            sampleCount++
+                            i += 2
+                        }
+
+                        if (sampleCount > 0) {
+                            val rms = Math.sqrt(sumSquares / sampleCount)
+                            currentRmsDb = if (rms > 0) 20 * Math.log10(rms / 32767.0) else -96.0
                         }
 
                         if (isAllZeros) {
@@ -288,7 +319,6 @@ class MediaCaptureService : Service() {
                             consecutiveZeroChunks = 0
                         }
 
-                        // Explicit debug output required by user
                         if (++logCounter % 25 == 0) {
                             Log.d(tag, "[AudioRecord] 正在采集并向 HQPE 写入字节: $bytesRead bytes")
                         }
@@ -299,10 +329,18 @@ class MediaCaptureService : Service() {
                         val elapsed = now - lastLogTime
                         if (elapsed >= 1000) {
                             val rate = bytesReadSecond * 1000 / elapsed
-                            Log.i(tag, "[AudioRecord] 正在采集并向 HQPE 写入字节: $bytesRead bytes (当前吞吐率: $rate B/s)")
-                            if (consecutiveZeroChunks >= 20) {
+                            val isSilent = consecutiveZeroChunks >= 30 // ~1.5 - 2s of silence
+                            if (isSilent) {
                                 Log.w(tag, "[AudioRecord] 警告: 连续检测到全零空数据！当前播放应用可能使用了系统独占音频模式或未允许内录。")
                             }
+
+                            _diagnostics.value = CaptureDiagnostics(
+                                isRunning = true,
+                                bytesPerSecond = rate,
+                                rmsDecibels = currentRmsDb,
+                                isSilent = isSilent
+                            )
+
                             bytesReadSecond = 0
                             lastLogTime = now
                         }
@@ -310,6 +348,7 @@ class MediaCaptureService : Service() {
                         val errMsg = "AudioRecord 读取异常错误码: $bytesRead"
                         Log.e(tag, errMsg)
                         showToast(errMsg)
+                        _diagnostics.value = CaptureDiagnostics(isRunning = false, errorMessage = errMsg)
                         break
                     }
                 }
@@ -320,6 +359,7 @@ class MediaCaptureService : Service() {
             val errMsg = "启动音频采集异常: ${e.message}"
             Log.e(tag, errMsg, e)
             showToast(errMsg)
+            _diagnostics.value = CaptureDiagnostics(errorMessage = errMsg)
             stopCapture()
         }
     }
@@ -327,11 +367,13 @@ class MediaCaptureService : Service() {
     private fun stopCapture() {
         if (!isCapturing.getAndSet(false)) {
             restoreDeviceAudio()
+            _diagnostics.value = CaptureDiagnostics(isRunning = false)
             stopSelf()
             return
         }
 
         _isStreamingState.value = false
+        _diagnostics.value = CaptureDiagnostics(isRunning = false)
 
         restoreDeviceAudio()
 
@@ -385,5 +427,8 @@ class MediaCaptureService : Service() {
 
         private val _isStreamingState = MutableStateFlow(false)
         val isStreamingState = _isStreamingState.asStateFlow()
+
+        private val _diagnostics = MutableStateFlow(CaptureDiagnostics())
+        val diagnostics = _diagnostics.asStateFlow()
     }
 }
