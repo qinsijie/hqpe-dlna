@@ -53,10 +53,10 @@ object SsdpScanner {
 
                 val group = InetAddress.getByName(MULTICAST_ADDRESS)
 
-                // SSDP M-SEARCH broadcast with mandatory quotes around "ssdp:discover"
+                // Probe specifically for MediaRenderer and AVTransport to avoid router/NAS flooding
                 val searchTargets = listOf(
                     "urn:schemas-upnp-org:device:MediaRenderer:1",
-                    "ssdp:all"
+                    "urn:schemas-upnp-org:service:AVTransport:1"
                 )
 
                 for (st in searchTargets) {
@@ -87,10 +87,11 @@ object SsdpScanner {
                                 val port = if (url.port != -1) url.port else 80
                                 val key = "$ip:$port"
                                 if (!discoveredDevices.containsKey(key)) {
-                                    val (friendlyName, controlUrl) = fetchDeviceDetails(location, ip, port)
-                                    val device = UpnpDevice(friendlyName, ip, port, location, controlUrl)
-                                    discoveredDevices[key] = device
-                                    Log.i(TAG, "Discovered device: $friendlyName, controlUrl: $controlUrl")
+                                    val device = fetchDeviceDetails(location, ip, port)
+                                    if (device != null) {
+                                        discoveredDevices[key] = device
+                                        Log.i(TAG, "Discovered MediaRenderer: ${device.friendlyName} at $key, controlUrl: ${device.controlUrl}")
+                                    }
                                 }
                             } catch (e: Exception) {
                                 Log.w(TAG, "Failed parsing URL or fetching description: $location", e)
@@ -127,22 +128,25 @@ object SsdpScanner {
         }
     }
 
-    private fun fetchDeviceDetails(locationUrl: String, ip: String, port: Int): Pair<String, String> {
-        val defaultControlUrl = "http://$ip:$port/upnp/control/rendertransport"
-        var friendlyName = "UPnP Device ($ip:$port)"
-        var controlUrl = defaultControlUrl
-
+    private fun fetchDeviceDetails(locationUrl: String, ip: String, port: Int): UpnpDevice? {
         try {
             val request = Request.Builder().url(locationUrl).build()
             httpClient.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     val xml = response.body?.string()
                     if (!xml.isNullOrBlank()) {
-                        friendlyName = parseFriendlyName(xml) ?: friendlyName
+                        val isMediaRenderer = xml.contains("MediaRenderer", ignoreCase = true)
                         val parsedControl = parseAvTransportControlUrl(locationUrl, xml)
-                        if (!parsedControl.isNullOrBlank()) {
-                            controlUrl = parsedControl
+
+                        // Strict filter: Discard routers, NAS (DSM/fnOS), gateways without AVTransport
+                        if (parsedControl == null && !isMediaRenderer) {
+                            Log.d(TAG, "Filtered out non-renderer node at $ip:$port")
+                            return null
                         }
+
+                        val controlUrl = parsedControl ?: "http://$ip:$port/upnp/control/rendertransport"
+                        val friendlyName = parseFriendlyName(xml) ?: "UPnP Renderer ($ip:$port)"
+                        return UpnpDevice(friendlyName, ip, port, locationUrl, controlUrl)
                     }
                 }
             }
@@ -150,7 +154,7 @@ object SsdpScanner {
             Log.w(TAG, "Failed to fetch device description XML from $locationUrl: ${e.message}")
         }
 
-        return Pair(friendlyName, controlUrl)
+        return null
     }
 
     private fun parseFriendlyName(xml: String): String? {

@@ -22,7 +22,8 @@ class LocalHttpServer(private val port: Int = 8088) {
 
     private class ClientSubscriber(
         val socket: Socket,
-        val outputStream: OutputStream
+        val outputStream: OutputStream,
+        val isChunked: Boolean
     )
 
     private val subscribers = CopyOnWriteArrayList<ClientSubscriber>()
@@ -76,9 +77,13 @@ class LocalHttpServer(private val port: Int = 8088) {
 
             Log.i(tag, "Incoming request: $requestLine from ${socket.remoteSocketAddress}")
 
-            // Consume remaining headers
+            var hasChunkedHeader = false
             var line: String? = reader.readLine()
             while (!line.isNullOrEmpty()) {
+                val lower = line.lowercase()
+                if (lower.contains("te:") && lower.contains("chunked")) {
+                    hasChunkedHeader = true
+                }
                 line = reader.readLine()
             }
 
@@ -101,18 +106,25 @@ class LocalHttpServer(private val port: Int = 8088) {
                 }
 
                 if (method == "GET") {
-                    val subscriber = ClientSubscriber(socket, out)
+                    // Dual mode: Chunked mode enabled if explicitly requested via ?chunked=1 or TE header.
+                    // Default to continuous raw stream (no chunk framing) which is standard for DLNA/UPnP GStreamer/Rygel.
+                    val isChunked = path.contains("chunked=1") || hasChunkedHeader
+                    val wavHeader = createWavHeader(48000, 2, 16)
+                    val subscriber = ClientSubscriber(socket, out, isChunked)
 
                     synchronized(subscriber.outputStream) {
-                        sendChunkedWavHeaders(out)
-                        // Send 44-byte WAV header as the initial chunk
-                        val wavHeader = createWavHeader(48000, 2, 16)
-                        sendChunk(out, wavHeader, 0, wavHeader.size)
+                        if (isChunked) {
+                            sendChunkedHeaders(out)
+                            sendChunk(out, wavHeader, 0, wavHeader.size)
+                        } else {
+                            sendRawContinuousHeaders(out)
+                            out.write(wavHeader)
+                        }
                         out.flush()
                     }
 
                     subscribers.add(subscriber)
-                    Log.i(tag, "Client subscribed to audio stream: ${socket.remoteSocketAddress}. Total clients: ${subscribers.size}")
+                    Log.i(tag, "Client subscribed to audio stream (chunked=$isChunked): ${socket.remoteSocketAddress}. Total clients: ${subscribers.size}")
 
                     // Keep socket open until disconnected
                     val input = socket.getInputStream()
@@ -142,23 +154,35 @@ class LocalHttpServer(private val port: Int = 8088) {
         }
     }
 
-    private fun sendChunkedWavHeaders(out: OutputStream) {
+    private fun sendRawContinuousHeaders(out: OutputStream) {
         val response = "HTTP/1.1 200 OK\r\n" +
-                "Content-Type: audio/wav\r\n" +
-                "Transfer-Encoding: chunked\r\n" +
-                "Connection: close\r\n" +
+                "Content-Type: audio/x-wav\r\n" +
                 "Accept-Ranges: none\r\n" +
+                "Cache-Control: no-cache\r\n" +
+                "Connection: close\r\n" +
                 "Server: HQPE-DLNA/1.0\r\n" +
                 "\r\n"
         out.write(response.toByteArray(Charsets.US_ASCII))
-        out.flush()
+    }
+
+    private fun sendChunkedHeaders(out: OutputStream) {
+        val response = "HTTP/1.1 200 OK\r\n" +
+                "Content-Type: audio/x-wav\r\n" +
+                "Transfer-Encoding: chunked\r\n" +
+                "Accept-Ranges: none\r\n" +
+                "Cache-Control: no-cache\r\n" +
+                "Connection: close\r\n" +
+                "Server: HQPE-DLNA/1.0\r\n" +
+                "\r\n"
+        out.write(response.toByteArray(Charsets.US_ASCII))
     }
 
     private fun sendHeadResponse(out: OutputStream) {
         val response = "HTTP/1.1 200 OK\r\n" +
-                "Content-Type: audio/wav\r\n" +
-                "Connection: close\r\n" +
+                "Content-Type: audio/x-wav\r\n" +
                 "Accept-Ranges: none\r\n" +
+                "Cache-Control: no-cache\r\n" +
+                "Connection: close\r\n" +
                 "Server: HQPE-DLNA/1.0\r\n" +
                 "\r\n"
         out.write(response.toByteArray(Charsets.US_ASCII))
@@ -186,10 +210,15 @@ class LocalHttpServer(private val port: Int = 8088) {
         for (subscriber in subscribers) {
             try {
                 synchronized(subscriber.outputStream) {
-                    sendChunk(subscriber.outputStream, buffer, offset, length)
+                    if (subscriber.isChunked) {
+                        sendChunk(subscriber.outputStream, buffer, offset, length)
+                    } else {
+                        subscriber.outputStream.write(buffer, offset, length)
+                        subscriber.outputStream.flush()
+                    }
                 }
             } catch (e: Exception) {
-                Log.d(tag, "Failed to write audio chunk to ${subscriber.socket.remoteSocketAddress}, closing socket: ${e.message}")
+                Log.d(tag, "Failed to write audio data to ${subscriber.socket.remoteSocketAddress}, closing socket: ${e.message}")
                 subscribers.remove(subscriber)
                 try { subscriber.socket.close() } catch (_: Exception) {}
             }
@@ -210,7 +239,9 @@ class LocalHttpServer(private val port: Int = 8088) {
         for (subscriber in subscribers) {
             try {
                 synchronized(subscriber.outputStream) {
-                    subscriber.outputStream.write("0\r\n\r\n".toByteArray(Charsets.US_ASCII))
+                    if (subscriber.isChunked) {
+                        subscriber.outputStream.write("0\r\n\r\n".toByteArray(Charsets.US_ASCII))
+                    }
                     subscriber.outputStream.flush()
                 }
             } catch (_: Exception) {}
@@ -237,8 +268,8 @@ class LocalHttpServer(private val port: Int = 8088) {
             bb.put('I'.code.toByte())
             bb.put('F'.code.toByte())
             bb.put('F'.code.toByte())
-            // ChunkSize: 0xFFFFFFFF (-1) for infinite/unknown live stream
-            bb.putInt(-1)
+            // ChunkSize: 0 for unknown/unspecified streaming length (avoids 0xFFFFFFFF overflow)
+            bb.putInt(0)
             // Format: "WAVE"
             bb.put('W'.code.toByte())
             bb.put('A'.code.toByte())
@@ -250,7 +281,7 @@ class LocalHttpServer(private val port: Int = 8088) {
             bb.put('m'.code.toByte())
             bb.put('t'.code.toByte())
             bb.put(' '.code.toByte())
-            // Subchunk1Size = 16 (for standard PCM)
+            // Subchunk1Size = 16 (for linear PCM)
             bb.putInt(16)
             // AudioFormat = 1 (Linear PCM uncompressed)
             bb.putShort(1.toShort())
@@ -270,8 +301,8 @@ class LocalHttpServer(private val port: Int = 8088) {
             bb.put('a'.code.toByte())
             bb.put('t'.code.toByte())
             bb.put('a'.code.toByte())
-            // Subchunk2Size: 0xFFFFFFFF (-1) for streaming data
-            bb.putInt(-1)
+            // Subchunk2Size: 0 for continuous live stream data (avoids 0xFFFFFFFF overflow)
+            bb.putInt(0)
 
             return header
         }

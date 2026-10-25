@@ -21,6 +21,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,7 +73,9 @@ class MediaCaptureService : Service() {
                     startForegroundWithNotification()
                     startCapture(resultCode, resultData)
                 } else {
-                    Log.e(tag, "Missing resultCode or resultData in ACTION_START")
+                    val errMsg = "未获取到有效的录屏/录音授权结果，无法启动服务"
+                    Log.e(tag, errMsg)
+                    showToast(errMsg)
                     stopSelf()
                 }
             }
@@ -82,6 +85,12 @@ class MediaCaptureService : Service() {
         }
 
         return START_NOT_STICKY
+    }
+
+    private fun showToast(msg: String) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(applicationContext, msg, Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun createNotificationChannel() {
@@ -144,16 +153,13 @@ class MediaCaptureService : Service() {
             val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
             previousMediaVolume = currentVol
             if (currentVol > 0) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
-                } else {
-                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
-                }
+                // Force volume level to 0 directly
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
                 isMutedByService = true
-                Log.i(tag, "Muted phone STREAM_MUSIC output to avoid duplicate sound (previous volume: $currentVol)")
+                Log.i(tag, "已将手机外放媒体音量强制置零 (原音量: $currentVol)")
             }
         } catch (e: Exception) {
-            Log.w(tag, "Failed to mute STREAM_MUSIC: ${e.message}")
+            Log.w(tag, "强制外放静音失败: ${e.message}")
         }
     }
 
@@ -161,15 +167,12 @@ class MediaCaptureService : Service() {
         if (isMutedByService) {
             try {
                 val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
-                }
                 previousMediaVolume?.let { vol ->
                     audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, vol, 0)
+                    Log.i(tag, "已恢复手机外放媒体音量至: $vol")
                 }
-                Log.i(tag, "Restored phone STREAM_MUSIC to volume $previousMediaVolume")
             } catch (e: Exception) {
-                Log.w(tag, "Failed to restore STREAM_MUSIC: ${e.message}")
+                Log.w(tag, "恢复外放音量失败: ${e.message}")
             }
             isMutedByService = false
             previousMediaVolume = null
@@ -188,23 +191,23 @@ class MediaCaptureService : Service() {
             val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             val projection = projectionManager.getMediaProjection(resultCode, resultData)
             if (projection == null) {
-                Log.e(tag, "Failed to obtain MediaProjection")
+                val errMsg = "获取 MediaProjection 失败，请确认系统录屏权限已允许"
+                Log.e(tag, errMsg)
+                showToast(errMsg)
                 stopCapture()
                 return
             }
             mediaProjection = projection
             projection.registerCallback(projectionCallback, Handler(Looper.getMainLooper()))
 
-            // 3. AudioPlaybackCaptureConfiguration:
-            // Match USAGE_MEDIA, USAGE_UNKNOWN and USAGE_GAME to ensure third-party music players
-            // (e.g., LX Music/Flutter audio tracks) are captured properly.
+            // 3. AudioPlaybackCaptureConfiguration
             val captureConfig = AudioPlaybackCaptureConfiguration.Builder(projection)
                 .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
                 .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
                 .addMatchingUsage(AudioAttributes.USAGE_GAME)
                 .build()
 
-            // 4. Mute phone physical speaker output so only HQPE plays audio
+            // 4. Mute phone physical speaker output
             muteDeviceAudio()
 
             // 5. Audio format: 48000Hz, 16bit, Stereo
@@ -228,23 +231,42 @@ class MediaCaptureService : Service() {
                 .build()
 
             if (record.state != AudioRecord.STATE_INITIALIZED) {
-                Log.e(tag, "AudioRecord initialization failed, state: ${record.state}")
+                val errMsg = "AudioRecord 初始化失败 (state: ${record.state})，请检查权限与录屏状态"
+                Log.e(tag, errMsg)
+                showToast(errMsg)
                 stopCapture()
                 return
             }
 
             audioRecord = record
-            record.startRecording()
+            try {
+                record.startRecording()
+                if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                    val errMsg = "AudioRecord 录音状态异常: ${record.recordingState}"
+                    Log.e(tag, errMsg)
+                    showToast(errMsg)
+                    stopCapture()
+                    return
+                }
+            } catch (e: Exception) {
+                val errMsg = "AudioRecord startRecording 失败: ${e.message}"
+                Log.e(tag, errMsg, e)
+                showToast(errMsg)
+                stopCapture()
+                return
+            }
+
             isCapturing.set(true)
             _isStreamingState.value = true
 
-            // 6. Start audio reading loop with throughput & zero-data monitoring
+            // 6. Start audio reading loop
             captureThread = Thread({
                 Log.i(tag, "Audio capture loop started")
                 val buffer = ByteArray(4096)
                 var bytesReadSecond = 0L
                 var lastLogTime = System.currentTimeMillis()
                 var consecutiveZeroChunks = 0
+                var logCounter = 0
 
                 while (isCapturing.get()) {
                     val bytesRead = record.read(buffer, 0, buffer.size)
@@ -266,21 +288,28 @@ class MediaCaptureService : Service() {
                             consecutiveZeroChunks = 0
                         }
 
+                        // Explicit debug output required by user
+                        if (++logCounter % 25 == 0) {
+                            Log.d(tag, "[AudioRecord] 正在采集并向 HQPE 写入字节: $bytesRead bytes")
+                        }
+
                         localHttpServer?.writeAudioData(buffer, 0, bytesRead)
 
                         val now = System.currentTimeMillis()
                         val elapsed = now - lastLogTime
                         if (elapsed >= 1000) {
                             val rate = bytesReadSecond * 1000 / elapsed
-                            Log.i(tag, "AudioCapture: $rate bytes/sec throughput (nominal: 192000 B/s)")
+                            Log.i(tag, "[AudioRecord] 正在采集并向 HQPE 写入字节: $bytesRead bytes (当前吞吐率: $rate B/s)")
                             if (consecutiveZeroChunks >= 20) {
-                                Log.w(tag, "AudioCapture warning: Captured $consecutiveZeroChunks consecutive zero chunks! App may be idle, paused, or using exclusive audio mode.")
+                                Log.w(tag, "[AudioRecord] 警告: 连续检测到全零空数据！当前播放应用可能使用了系统独占音频模式或未允许内录。")
                             }
                             bytesReadSecond = 0
                             lastLogTime = now
                         }
                     } else if (bytesRead < 0) {
-                        Log.w(tag, "AudioRecord read error code: $bytesRead")
+                        val errMsg = "AudioRecord 读取异常错误码: $bytesRead"
+                        Log.e(tag, errMsg)
+                        showToast(errMsg)
                         break
                     }
                 }
@@ -288,7 +317,9 @@ class MediaCaptureService : Service() {
             }, "AudioCaptureThread").apply { start() }
 
         } catch (e: Exception) {
-            Log.e(tag, "Error starting audio capture", e)
+            val errMsg = "启动音频采集异常: ${e.message}"
+            Log.e(tag, errMsg, e)
+            showToast(errMsg)
             stopCapture()
         }
     }

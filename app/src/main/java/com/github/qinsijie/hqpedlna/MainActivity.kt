@@ -67,8 +67,9 @@ class MainActivity : AppCompatActivity() {
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             startCaptureAndHqpePlayback(result.resultCode, result.data!!)
         } else {
-            Toast.makeText(this, "用户取消了音频捕获授权", Toast.LENGTH_SHORT).show()
-            tvStatus.text = "状态: 授权已取消"
+            val msg = if (result.resultCode != Activity.RESULT_OK) "未授予屏幕/音频捕获权限 (代码: ${result.resultCode})" else "录屏授权返回数据为空"
+            Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+            tvStatus.text = "状态: $msg"
         }
     }
 
