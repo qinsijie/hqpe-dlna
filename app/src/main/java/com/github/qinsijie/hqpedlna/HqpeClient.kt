@@ -8,6 +8,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.net.URL
 import java.util.concurrent.TimeUnit
 
 object HqpeClient {
@@ -21,7 +22,7 @@ object HqpeClient {
         .writeTimeout(5, TimeUnit.SECONDS)
         .build()
 
-    suspend fun setUri(ip: String, port: Int, streamUrl: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun setUri(controlUrl: String, streamUrl: String): Result<Unit> = withContext(Dispatchers.IO) {
         val payload = """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
   <s:Body>
@@ -33,10 +34,10 @@ object HqpeClient {
   </s:Body>
 </s:Envelope>""".trimIndent()
 
-        executeSoap(ip, port, "SetAVTransportURI", payload)
+        executeSoap(controlUrl, "SetAVTransportURI", payload)
     }
 
-    suspend fun play(ip: String, port: Int): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun play(controlUrl: String): Result<Unit> = withContext(Dispatchers.IO) {
         val payload = """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
   <s:Body>
@@ -47,10 +48,10 @@ object HqpeClient {
   </s:Body>
 </s:Envelope>""".trimIndent()
 
-        executeSoap(ip, port, "Play", payload)
+        executeSoap(controlUrl, "Play", payload)
     }
 
-    suspend fun stop(ip: String, port: Int): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun stop(controlUrl: String): Result<Unit> = withContext(Dispatchers.IO) {
         val payload = """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
   <s:Body>
@@ -60,25 +61,25 @@ object HqpeClient {
   </s:Body>
 </s:Envelope>""".trimIndent()
 
-        executeSoap(ip, port, "Stop", payload)
+        executeSoap(controlUrl, "Stop", payload)
     }
 
-    private fun executeSoap(ip: String, port: Int, action: String, xmlPayload: String): Result<Unit> {
-        val endpoint = "http://$ip:$port/upnp/control/rendertransport"
-        val hostHeader = "$ip:$port"
-        val soapActionHeader = "\"urn:schemas-upnp-org:service:AVTransport:1#$action\""
-
-        Log.d(TAG, "Executing SOAP $action on $endpoint (Host: $hostHeader)")
-
-        val request = Request.Builder()
-            .url(endpoint)
-            .header("Host", hostHeader)
-            .header("SOAPAction", soapActionHeader)
-            .header("Content-Type", "text/xml; charset=\"utf-8\"")
-            .post(xmlPayload.toRequestBody(XML_MEDIA_TYPE))
-            .build()
-
+    private fun executeSoap(controlUrl: String, action: String, xmlPayload: String): Result<Unit> {
         return try {
+            val url = URL(controlUrl)
+            val hostHeader = if (url.port != -1) "${url.host}:${url.port}" else url.host
+            val soapActionHeader = "\"urn:schemas-upnp-org:service:AVTransport:1#$action\""
+
+            Log.d(TAG, "Executing SOAP $action on $controlUrl (Host: $hostHeader)")
+
+            val request = Request.Builder()
+                .url(controlUrl)
+                .header("Host", hostHeader)
+                .header("SOAPAction", soapActionHeader)
+                .header("Content-Type", "text/xml; charset=\"utf-8\"")
+                .post(xmlPayload.toRequestBody(XML_MEDIA_TYPE))
+                .build()
+
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
                 if (response.isSuccessful) {

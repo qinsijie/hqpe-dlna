@@ -21,7 +21,7 @@
             android:textColor="#212121"
             android:layout_marginBottom="12dp" />
 
-        <!-- 1. 目标设备卡片 (DLNA/UPnP 发现与 IP/端口) -->
+        <!-- 1. 目标设备卡片 (DLNA/UPnP 自动探测与控制端点) -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -64,7 +64,7 @@
                     android:id="@+id/tv_scan_hint"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="支持 SSDP 自动发现局域网 HQPE/DLNA 设备"
+                    android:text="支持 SSDP 自动发现并解析 AVTransport 控制端点"
                     android:textSize="12sp"
                     android:textColor="#757575"
                     android:layout_marginBottom="8dp" />
@@ -78,7 +78,7 @@
                     android:background="@android:drawable/btn_dropdown"
                     android:spinnerMode="dropdown" />
 
-                <!-- 手动输入备选 -->
+                <!-- 手动输入 IP 与端口 (兜底备用) -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -116,87 +116,19 @@
                     </com.google.android.material.textfield.TextInputLayout>
                 </LinearLayout>
 
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- 2. 音频来源选择卡片 -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            app:cardCornerRadius="10dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
                 <TextView
+                    android:id="@+id/tv_control_url"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="音频来源 (Audio Capture Source)"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:textColor="#212121"
-                    android:layout_marginBottom="8dp" />
-
-                <RadioGroup
-                    android:id="@+id/rg_audio_source"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
-                    <RadioButton
-                        android:id="@+id/rb_audio_global"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="全局媒体音频 (默认，捕获全部 USAGE_MEDIA)"
-                        android:checked="true"
-                        android:textSize="14sp" />
-
-                    <RadioButton
-                        android:id="@+id/rb_audio_app"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="指定单个应用 (单应用精准抓音，如网易云/QQ音乐)"
-                        android:textSize="14sp" />
-                </RadioGroup>
-
-                <!-- 指定应用详情与选择按钮 -->
-                <LinearLayout
-                    android:id="@+id/layout_app_picker"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:visibility="gone"
-                    android:layout_marginTop="8dp"
-                    android:padding="8dp"
-                    android:background="#EEEEEE">
-
-                    <TextView
-                        android:id="@+id/tv_selected_app"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="未选择应用 (请点击下方按钮选取)"
-                        android:textColor="#424242"
-                        android:textSize="13sp"
-                        android:layout_marginBottom="6dp" />
-
-                    <Button
-                        android:id="@+id/btn_select_app"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="选择目标应用..."
-                        android:textSize="13sp"
-                        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
-                </LinearLayout>
+                    android:text="控制端点: 自动解析或默认"
+                    android:textSize="12sp"
+                    android:textColor="#616161"
+                    android:layout_marginTop="8dp" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 3. 本机状态与推流信息卡片 -->
+        <!-- 2. 本机状态与推流信息卡片 -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -240,7 +172,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 4. 控制操作按钮 -->
+        <!-- 3. 控制操作按钮 -->
         <Button
             android:id="@+id/btn_start"
             android:layout_width="match_parent"
