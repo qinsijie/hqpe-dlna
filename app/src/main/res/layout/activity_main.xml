@@ -4,13 +4,13 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="#F5F5F5">
+    android:background="#F8F9FA">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="20dp">
+        android:padding="16dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -19,14 +19,189 @@
             android:textSize="22sp"
             android:textStyle="bold"
             android:textColor="#212121"
-            android:layout_marginBottom="16dp" />
+            android:layout_marginBottom="12dp" />
 
-        <!-- 本机推流信息卡片 -->
+        <!-- 1. 目标设备卡片 (DLNA/UPnP 发现与 IP/端口) -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardCornerRadius="10dp"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="目标设备 (HQPlayer)"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="#212121" />
+
+                    <Button
+                        android:id="@+id/btn_scan_devices"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="扫描设备"
+                        android:textSize="13sp"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tv_scan_hint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="支持 SSDP 自动发现局域网 HQPE/DLNA 设备"
+                    android:textSize="12sp"
+                    android:textColor="#757575"
+                    android:layout_marginBottom="8dp" />
+
+                <!-- 设备选择 Spinner -->
+                <Spinner
+                    android:id="@+id/spinner_devices"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginBottom="12dp"
+                    android:background="@android:drawable/btn_dropdown"
+                    android:spinnerMode="dropdown" />
+
+                <!-- 手动输入备选 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="2"
+                        android:hint="HQPE IP 地址"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:layout_marginEnd="8dp">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_hqpe_ip"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="10.10.10.120"
+                            android:inputType="textUri" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="端口"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_hqpe_port"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="49152"
+                            android:inputType="number" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 2. 音频来源选择卡片 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardCornerRadius="10dp"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="音频来源 (Audio Capture Source)"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="#212121"
+                    android:layout_marginBottom="8dp" />
+
+                <RadioGroup
+                    android:id="@+id/rg_audio_source"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <RadioButton
+                        android:id="@+id/rb_audio_global"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="全局媒体音频 (默认，捕获全部 USAGE_MEDIA)"
+                        android:checked="true"
+                        android:textSize="14sp" />
+
+                    <RadioButton
+                        android:id="@+id/rb_audio_app"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="指定单个应用 (单应用精准抓音，如网易云/QQ音乐)"
+                        android:textSize="14sp" />
+                </RadioGroup>
+
+                <!-- 指定应用详情与选择按钮 -->
+                <LinearLayout
+                    android:id="@+id/layout_app_picker"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone"
+                    android:layout_marginTop="8dp"
+                    android:padding="8dp"
+                    android:background="#EEEEEE">
+
+                    <TextView
+                        android:id="@+id/tv_selected_app"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="未选择应用 (请点击下方按钮选取)"
+                        android:textColor="#424242"
+                        android:textSize="13sp"
+                        android:layout_marginBottom="6dp" />
+
+                    <Button
+                        android:id="@+id/btn_select_app"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="选择目标应用..."
+                        android:textSize="13sp"
+                        style="@style/Widget.MaterialComponents.Button.TonalButton" />
+                </LinearLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 3. 本机状态与推流信息卡片 -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
-            app:cardCornerRadius="8dp"
+            app:cardCornerRadius="10dp"
             app:cardElevation="2dp">
 
             <LinearLayout
@@ -40,7 +215,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="本机 IP: 获取中..."
-                    android:textSize="15sp"
+                    android:textSize="14sp"
                     android:textColor="#424242" />
 
                 <TextView
@@ -48,81 +223,24 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="推流地址: 待就绪"
-                    android:textSize="14sp"
+                    android:textSize="13sp"
                     android:textColor="#616161"
-                    android:layout_marginTop="6dp" />
-
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- HQPE 配置卡片 -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="20dp"
-            app:cardCornerRadius="8dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
+                    android:layout_marginTop="4dp" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:id="@+id/tv_status"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="HQPlayer Embedded (HQPE) 目标设置"
+                    android:text="状态: 待机就绪"
                     android:textSize="15sp"
                     android:textStyle="bold"
-                    android:textColor="#212121"
-                    android:layout_marginBottom="12dp" />
-
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="HQPE IP 地址"
-                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-                    android:layout_marginBottom="10dp">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/et_hqpe_ip"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="10.10.10.120"
-                        android:inputType="textUri" />
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="HQPE UPnP 端口 (常见 49152 或自定义)"
-                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/et_hqpe_port"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="49152"
-                        android:inputType="number" />
-                </com.google.android.material.textfield.TextInputLayout>
+                    android:textColor="#1976D2"
+                    android:layout_marginTop="10dp" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 状态指示 -->
-        <TextView
-            android:id="@+id/tv_status"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="状态: 待机就绪"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:textColor="#1976D2"
-            android:padding="8dp"
-            android:layout_marginBottom="20dp" />
-
-        <!-- 控制按钮 -->
+        <!-- 4. 控制操作按钮 -->
         <Button
             android:id="@+id/btn_start"
             android:layout_width="match_parent"
@@ -130,7 +248,7 @@
             android:text="开始投送音频"
             android:textSize="16sp"
             android:textAllCaps="false"
-            android:layout_marginBottom="12dp" />
+            android:layout_marginBottom="10dp" />
 
         <Button
             android:id="@+id/btn_stop"

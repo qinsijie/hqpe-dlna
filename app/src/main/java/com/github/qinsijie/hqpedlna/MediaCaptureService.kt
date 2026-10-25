@@ -36,6 +36,9 @@ class MediaCaptureService : Service() {
     private val isCapturing = AtomicBoolean(false)
     private var localHttpServer: LocalHttpServer? = null
 
+    private var currentTargetUid: Int = -1
+    private var currentTargetAppName: String? = null
+
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
             Log.i(tag, "MediaProjection was stopped by system or user")
@@ -63,9 +66,12 @@ class MediaCaptureService : Service() {
                     intent.getParcelableExtra(EXTRA_RESULT_DATA)
                 }
 
+                currentTargetUid = intent.getIntExtra(EXTRA_TARGET_UID, -1)
+                currentTargetAppName = intent.getStringExtra(EXTRA_TARGET_APP_NAME)
+
                 if (resultCode != 0 && resultData != null) {
                     startForegroundWithNotification()
-                    startCapture(resultCode, resultData)
+                    startCapture(resultCode, resultData, currentTargetUid, currentTargetAppName)
                 } else {
                     Log.e(tag, "Missing resultCode or resultData in ACTION_START")
                     stopSelf()
@@ -112,9 +118,15 @@ class MediaCaptureService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
         )
 
+        val contentText = if (!currentTargetAppName.isNullOrBlank()) {
+            "正在捕获 [$currentTargetAppName] 音频并广播 (端口 8088)"
+        } else {
+            "正在捕获全局媒体音频并广播 (端口 8088)"
+        }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("HQPE-DLNA 音频串流")
-            .setContentText("正在捕获系统音频并通过 HTTP 广播 (端口 8088)")
+            .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentIntent(activityPendingIntent)
             .addAction(R.drawable.ic_launcher, "停止投送", stopPendingIntent)
@@ -134,7 +146,7 @@ class MediaCaptureService : Service() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun startCapture(resultCode: Int, resultData: Intent) {
+    private fun startCapture(resultCode: Int, resultData: Intent, targetUid: Int, targetAppName: String?) {
         if (isCapturing.get()) return
 
         try {
@@ -152,10 +164,18 @@ class MediaCaptureService : Service() {
             mediaProjection = projection
             projection.registerCallback(projectionCallback, Handler(Looper.getMainLooper()))
 
-            // 3. AudioPlaybackCaptureConfiguration for Media playback audio
-            val captureConfig = AudioPlaybackCaptureConfiguration.Builder(projection)
+            // 3. AudioPlaybackCaptureConfiguration
+            val captureConfigBuilder = AudioPlaybackCaptureConfiguration.Builder(projection)
                 .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
-                .build()
+
+            if (targetUid != -1) {
+                captureConfigBuilder.addMatchingUid(targetUid)
+                Log.i(tag, "Capturing audio restricted to UID: $targetUid ($targetAppName)")
+            } else {
+                Log.i(tag, "Capturing global USAGE_MEDIA audio")
+            }
+
+            val captureConfig = captureConfigBuilder.build()
 
             // 4. Audio format: 48000Hz, 16bit, Stereo
             val sampleRate = 48000
@@ -261,6 +281,8 @@ class MediaCaptureService : Service() {
         const val ACTION_STOP = "com.github.qinsijie.hqpedlna.action.STOP"
         const val EXTRA_RESULT_CODE = "extra_result_code"
         const val EXTRA_RESULT_DATA = "extra_result_data"
+        const val EXTRA_TARGET_UID = "extra_target_uid"
+        const val EXTRA_TARGET_APP_NAME = "extra_target_app_name"
 
         private const val CHANNEL_ID = "hqpe_capture_channel"
         private const val NOTIFICATION_ID = 1001
