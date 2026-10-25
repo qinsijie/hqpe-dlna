@@ -3,6 +3,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
@@ -14,10 +15,19 @@
         android:label="@string/app_name"
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.HqpeDlna">
+        android:theme="@style/Theme.HqpeDlna"
+        android:usesCleartextTraffic="true">
+
+        <service
+            android:name=".MediaCaptureService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

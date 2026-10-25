@@ -41,5 +41,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
+    implementation("androidx.activity:activity-ktx:1.8.2")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
