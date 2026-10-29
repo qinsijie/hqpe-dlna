@@ -20,6 +20,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -34,6 +35,15 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    applicationVariants.all {
+        val variantVersion = versionName
+        val type = buildType.name
+        outputs.all {
+            (this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl)?.outputFileName =
+                "HQPE-Streamer-v${variantVersion}-${type}.apk"
+        }
     }
 }
 

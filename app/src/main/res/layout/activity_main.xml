@@ -395,7 +395,7 @@
                     android:id="@+id/tv_status"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="待机待命 · 手机扬声器"
+                    android:text="待机待命 · 准备就绪"
                     android:textSize="11.5sp"
                     android:typeface="monospace"
                     android:textColor="@color/text_secondary" />
@@ -412,12 +412,12 @@
                 android:textColor="@color/cyan_neon"
                 android:layout_marginTop="8dp" />
 
-            <!-- 辅助诊断与静音说明 -->
+            <!-- 务实提示说明 (不误导独立静音) -->
             <TextView
                 android:id="@+id/tv_diag_warning"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="推送 HQPE · 纯净直通"
+                android:text="提示：若外放有声，按音量键调低即可，不影响推流与抓流。"
                 android:textSize="10.5sp"
                 android:textColor="@color/text_secondary"
                 android:layout_marginTop="4dp" />

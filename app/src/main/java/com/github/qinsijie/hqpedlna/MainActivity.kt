@@ -177,11 +177,8 @@ class MainActivity : AppCompatActivity() {
                 } else if (diag.isSilent) {
                     tvDiagWarning.text = "⚠️ 警告: 捕获到静音数据 (0x00)！请检查播放器内录权限"
                     tvDiagWarning.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent_amber))
-                } else if (diag.isRunning) {
-                    tvDiagWarning.text = "推送 HQPE · 源码直通渲染中"
-                    tvDiagWarning.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.cyan_neon))
                 } else {
-                    tvDiagWarning.text = "推送 HQPE · 纯净直通已就绪"
+                    tvDiagWarning.text = "提示：若外放有声，按音量键调低即可，不影响推流与抓流。"
                     tvDiagWarning.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
                 }
             }
@@ -211,7 +208,7 @@ class MainActivity : AppCompatActivity() {
 
             layoutStatusPill.setBackgroundResource(R.drawable.bg_pill_status_active)
             viewStatusDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.cyan_neon))
-            tvStatus.text = "串流中 · 本地单应用已静音"
+            tvStatus.text = "正在向 HQPE 成功推流"
             tvStatus.setTextColor(ContextCompat.getColor(this, R.color.cyan_neon))
 
             viewDialEdgeDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.cyan_neon))
@@ -225,7 +222,7 @@ class MainActivity : AppCompatActivity() {
 
             layoutStatusPill.setBackgroundResource(R.drawable.bg_pill_status_idle)
             viewStatusDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.text_muted))
-            tvStatus.text = "待机待命 · 手机扬声器"
+            tvStatus.text = "待机待命 · 准备就绪"
             tvStatus.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
 
             viewDialEdgeDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.cyan_subtle))
@@ -491,7 +488,7 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
 
-            tvStatus.text = "串流中 · 手机已静音"
+            tvStatus.text = "正在向 HQPE 成功推流"
         }
     }
 
@@ -513,7 +510,7 @@ class MainActivity : AppCompatActivity() {
             }
             startService(serviceIntent)
 
-            tvStatus.text = "待机待命 · 手机扬声器"
+            tvStatus.text = "待机待命 · 准备就绪"
         }
     }
 }

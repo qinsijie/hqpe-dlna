@@ -1,11 +1,15 @@
-name: Build Debug APK
+name: Build & Release APK
 
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -14,6 +18,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -25,11 +31,43 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build with Gradle
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Build Debug & Release APKs
+        run: ./gradlew assembleDebug assembleRelease --stacktrace
 
-      - name: Upload Debug APK
+      - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: hqpe-dlna-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: HQPE-Streamer-v1.0.0-APKs
+          path: app/build/outputs/apk/*/*.apk
+
+      - name: Publish GitHub Release v1.0.0
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: "HQPE Streamer v1.0.0"
+          draft: false
+          prerelease: false
+          body: |
+            ## HQPE Streamer v1.0.0 发烧级极简版发布
+
+            极简、免 Root 的 Android 系统媒体音频内录与 HQPlayer Embedded DLNA 实时推流桥接器。
+
+            ### ✨ 核心特性
+            1. **发烧级满屏 Master Dial 交互**：居中触控发光大圆环，一键开启/断开推流，全屏零滚动。
+            2. **Bit-Perfect 源码直通**：直接截取系统 PCM 裸流（48kHz / 16-Bit 双声道），零重采样与有损转码。
+            3. **规格参数动态只读 HUD**：自动跟随当前正在播放曲目的真实参数显示，拒绝虚假控制。
+            4. **抽屉式配置收纳 (BottomSheet)**：右上角齿轮与渲染器卡片平滑呼出，支持局域网 SSDP 扫描与手动 IP/端口修改。
+            5. **智能出口路由探测**：自动绑定物理 WiFi 出口网卡，规避 VPN/虚拟网卡干扰。
+
+            ### 💡 避坑提示
+            - 若外放有声，按手机物理音量键调低即可，不影响推流与抓流。
+
+            ### 📦 文件下载
+            - **正式版安装包**：`HQPE-Streamer-v1.0.0-release.apk`
+            - **调试版安装包**：`HQPE-Streamer-v1.0.0-debug.apk`
+          files: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/debug/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
