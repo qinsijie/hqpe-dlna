@@ -1,24 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Brand & Accent -->
+    <!-- Brand & Accent (Audiophile Cyan & Blue) -->
+    <color name="cyan_neon">#00F2FE</color>
+    <color name="cyan_accent">#00F0FF</color>
+    <color name="cyan_subtle">#0EA5E9</color>
     <color name="primary_blue">#1E88E5</color>
     <color name="primary_blue_dark">#1565C0</color>
-    <color name="accent_cyan">#00E5FF</color>
-    <color name="accent_green">#00E676</color>
-    <color name="accent_amber">#FFD54F</color>
-    <color name="accent_red">#E53935</color>
+    <color name="accent_cyan">#00F0FF</color>
+    <color name="accent_green">#34D399</color>
+    <color name="accent_amber">#F59E0B</color>
+    <color name="accent_red">#F87171</color>
 
-    <!-- Theme & Surfaces -->
-    <color name="bg_dark">#111215</color>
-    <color name="card_bg">#1C1E22</color>
-    <color name="card_stroke">#2D3139</color>
-    <color name="input_bg">#262930</color>
-    <color name="input_stroke">#363A45</color>
+    <!-- Theme & Surfaces (Deep #05070B & Glass #121826) -->
+    <color name="bg_dark">#05070B</color>
+    <color name="card_bg">#121826</color>
+    <color name="card_stroke">#232D42</color>
+    <color name="input_bg">#0B0F17</color>
+    <color name="input_stroke">#1E293B</color>
 
     <!-- Text -->
-    <color name="text_primary">#FFFFFF</color>
-    <color name="text_secondary">#8E929B</color>
-    <color name="text_muted">#636773</color>
+    <color name="text_primary">#E2E8F0</color>
+    <color name="text_secondary">#94A3B8</color>
+    <color name="text_muted">#64748B</color>
 
     <!-- Compatibility -->
     <color name="black">#FF000000</color>

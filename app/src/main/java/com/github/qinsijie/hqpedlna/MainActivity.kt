@@ -2,9 +2,12 @@ package com.github.qinsijie.hqpedlna
 
 import android.Manifest
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
@@ -14,15 +17,17 @@ import android.view.animation.LinearInterpolator
 import android.view.animation.RotateAnimation
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.Dispatchers
@@ -34,24 +39,35 @@ import java.net.URL
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var etLocalIp: TextInputEditText
-    private lateinit var btnRefreshIp: MaterialButton
-    private lateinit var tvStreamUrl: TextView
-    private lateinit var etHqpeIp: TextInputEditText
-    private lateinit var etHqpePort: TextInputEditText
-    private lateinit var tvControlUrl: TextView
-    private lateinit var tvStatus: TextView
-    private lateinit var tvCaptureDiag: TextView
-    private lateinit var tvDiagWarning: TextView
-    private lateinit var btnStart: MaterialButton
-    private lateinit var btnStop: MaterialButton
-
-    // DLNA 扫描与设备选择
+    // Main screen views
     private lateinit var btnScanDevices: ImageButton
-    private lateinit var tvScanHint: TextView
-    private lateinit var spinnerDevices: Spinner
-    private val discoveredDevices = mutableListOf<UpnpDevice>()
+    private lateinit var btnOpenConfig: ImageButton
+    private lateinit var cardTargetDevice: LinearLayout
+    private lateinit var tvDeviceName: TextView
+    private lateinit var tvDeviceIpPort: TextView
+    private lateinit var btnMasterDial: FrameLayout
+    private lateinit var viewDialOuterRing: View
+    private lateinit var viewDialEdgeDot: View
+    private lateinit var tvDialAction: TextView
+    private lateinit var tvDialSubtext: TextView
+    private lateinit var layoutStatusPill: LinearLayout
+    private lateinit var viewStatusDot: View
+    private lateinit var tvStatus: TextView
+    private lateinit var tvHudSpec: TextView
+    private lateinit var tvDiagWarning: TextView
+    private lateinit var tvStreamUrl: TextView
+    private lateinit var btnCopyUrl: MaterialButton
+
+    // In-memory configuration
+    private var currentDevName: String = "HQPlayer Embedded"
+    private var currentHqpeIp: String = "10.10.10.120"
+    private var currentHqpePort: Int = 49152
+    private var currentLocalIp: String = ""
     private var activeControlUrl: String? = null
+
+    // DLNA discovered devices
+    private val discoveredDevices = mutableListOf<UpnpDevice>()
+    private var dialRotateAnimation: RotateAnimation? = null
 
     private lateinit var mediaProjectionManager: MediaProjectionManager
 
@@ -82,89 +98,91 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        etLocalIp = findViewById(R.id.et_local_ip)
-        btnRefreshIp = findViewById(R.id.btn_refresh_ip)
-        tvStreamUrl = findViewById(R.id.tv_stream_url)
-        etHqpeIp = findViewById(R.id.et_hqpe_ip)
-        etHqpePort = findViewById(R.id.et_hqpe_port)
-        tvControlUrl = findViewById(R.id.tv_control_url)
-        tvStatus = findViewById(R.id.tv_status)
-        tvCaptureDiag = findViewById(R.id.tv_capture_diag)
-        tvDiagWarning = findViewById(R.id.tv_diag_warning)
-        btnStart = findViewById(R.id.btn_start)
-        btnStop = findViewById(R.id.btn_stop)
-
+        // Bind main screen views
         btnScanDevices = findViewById(R.id.btn_scan_devices)
-        tvScanHint = findViewById(R.id.tv_scan_hint)
-        spinnerDevices = findViewById(R.id.spinner_devices)
+        btnOpenConfig = findViewById(R.id.btn_open_config)
+        cardTargetDevice = findViewById(R.id.card_target_device)
+        tvDeviceName = findViewById(R.id.tv_device_name)
+        tvDeviceIpPort = findViewById(R.id.tv_device_ip_port)
+        btnMasterDial = findViewById(R.id.btn_master_dial)
+        viewDialOuterRing = findViewById(R.id.view_dial_outer_ring)
+        viewDialEdgeDot = findViewById(R.id.view_dial_edge_dot)
+        tvDialAction = findViewById(R.id.tv_dial_action)
+        tvDialSubtext = findViewById(R.id.tv_dial_subtext)
+        layoutStatusPill = findViewById(R.id.layout_status_pill)
+        viewStatusDot = findViewById(R.id.view_status_dot)
+        tvStatus = findViewById(R.id.tv_status)
+        tvHudSpec = findViewById(R.id.tv_hud_spec)
+        tvDiagWarning = findViewById(R.id.tv_diag_warning)
+        tvStreamUrl = findViewById(R.id.tv_stream_url)
+        btnCopyUrl = findViewById(R.id.btn_copy_url)
 
         mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
-        initDeviceSpinner()
         loadSavedSettings()
-        updateControlUrlDisplay()
+        updateMainScreenViews()
 
-        if (etLocalIp.text.isNullOrBlank()) {
+        if (currentLocalIp.isBlank()) {
             autoDetectLocalIp(showToast = false)
-        } else {
-            updateStreamUrlDisplay()
         }
 
-        etHqpeIp.doAfterTextChanged {
-            updateControlUrlDisplay()
-        }
-        etHqpePort.doAfterTextChanged {
-            updateControlUrlDisplay()
-        }
-        etLocalIp.doAfterTextChanged {
-            updateStreamUrlDisplay()
-            saveSettings()
-        }
-
-        btnRefreshIp.setOnClickListener {
-            autoDetectLocalIp(showToast = true)
-        }
-
+        // Click listeners
         btnScanDevices.setOnClickListener {
             performSsdpScan()
         }
 
-        btnStart.setOnClickListener {
-            checkPermissionsAndStart()
+        btnOpenConfig.setOnClickListener {
+            openConfigBottomSheet()
         }
 
-        btnStop.setOnClickListener {
-            stopCaptureAndHqpe()
+        cardTargetDevice.setOnClickListener {
+            openConfigBottomSheet()
         }
 
-        lifecycleScope.launch {
-            MediaCaptureService.isStreamingState.collectLatest { isStreaming ->
-                btnStart.isEnabled = !isStreaming
-                btnStop.isEnabled = isStreaming
-                btnScanDevices.isEnabled = !isStreaming
-                btnScanDevices.alpha = if (isStreaming) 0.5f else 1.0f
-                btnRefreshIp.isEnabled = !isStreaming
-                if (!isStreaming && tvStatus.text.contains("正在向 HQPE 成功推流")) {
-                    tvStatus.text = "状态: 投送已停止"
-                }
+        btnMasterDial.setOnClickListener {
+            if (MediaCaptureService.isStreamingState.value) {
+                stopCaptureAndHqpe()
+            } else {
+                checkPermissionsAndStart()
             }
         }
 
+        btnCopyUrl.setOnClickListener {
+            copyStreamUrlToClipboard()
+        }
+
+        // Observe Streaming state
+        lifecycleScope.launch {
+            MediaCaptureService.isStreamingState.collectLatest { isStreaming ->
+                updateDialState(isStreaming)
+            }
+        }
+
+        // Observe Diagnostics for dynamic Bit-Perfect HUD
         lifecycleScope.launch {
             MediaCaptureService.diagnostics.collectLatest { diag ->
-                val statusDot = if (diag.isRunning) "🟢 RUNNING" else "⚪ STOPPED"
                 val rateKb = String.format("%.1f", diag.bytesPerSecond / 1024.0)
+                val sampleRateKhz = String.format("%.1f", diag.sampleRate / 1000.0)
                 val dbStr = String.format("%.1f", diag.rmsDecibels)
-                tvCaptureDiag.text = "$statusDot  |  $rateKb KB/s  |  $dbStr dB"
+
+                if (diag.isRunning) {
+                    tvHudSpec.text = "$sampleRateKhz kHz · ${diag.bitsPerSample}-Bit · 源码直通 | $rateKb KB/s | $dbStr dB"
+                } else {
+                    tvHudSpec.text = "48.0 kHz · 16-Bit · 源码直通 | 0.0 KB/s | 0 Underrun"
+                }
 
                 if (diag.errorMessage != null) {
-                    tvDiagWarning.visibility = View.VISIBLE
                     tvDiagWarning.text = "❌ 采集异常: ${diag.errorMessage}"
+                    tvDiagWarning.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent_red))
                 } else if (diag.isSilent) {
-                    tvDiagWarning.visibility = View.VISIBLE
-                    tvDiagWarning.text = "⚠️ 警告: 捕获到静音数据 (0x00)！当前播放器可能阻止了系统内录，请尝试更换播放器测试 (如网易云/QQ音乐/系统自带音乐)"
+                    tvDiagWarning.text = "⚠️ 警告: 捕获到静音数据 (0x00)！请检查播放器内录权限"
+                    tvDiagWarning.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent_amber))
+                } else if (diag.isRunning) {
+                    tvDiagWarning.text = "推送 HQPE · 源码直通渲染中"
+                    tvDiagWarning.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.cyan_neon))
                 } else {
-                    tvDiagWarning.visibility = View.GONE
+                    tvDiagWarning.text = "推送 HQPE · 纯净直通已就绪"
+                    tvDiagWarning.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
                 }
             }
         }
@@ -172,20 +190,88 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (etLocalIp.text.isNullOrBlank()) {
+        if (currentLocalIp.isBlank()) {
             autoDetectLocalIp(showToast = false)
         }
     }
 
-    private fun autoDetectLocalIp(showToast: Boolean = false) {
-        val targetIp = etHqpeIp.text?.toString()?.trim()
-        val targetPort = etHqpePort.text?.toString()?.trim()?.toIntOrNull() ?: 80
+    private fun updateMainScreenViews() {
+        tvDeviceName.text = currentDevName
+        tvDeviceIpPort.text = "$currentHqpeIp:$currentHqpePort · 就绪"
+        tvStreamUrl.text = if (currentLocalIp.isNotBlank()) "http://$currentLocalIp:8088/stream.wav" else "待探测本机 IP"
+    }
 
+    private fun updateDialState(isStreaming: Boolean) {
+        if (isStreaming) {
+            btnMasterDial.setBackgroundResource(R.drawable.bg_dial_active)
+            tvDialAction.text = "正在串流 HQPE"
+            tvDialAction.setTextColor(ContextCompat.getColor(this, R.color.cyan_neon))
+            tvDialSubtext.text = "TAP TO DISCONNECT"
+            tvDialSubtext.setTextColor(ContextCompat.getColor(this, R.color.accent_red))
+
+            layoutStatusPill.setBackgroundResource(R.drawable.bg_pill_status_active)
+            viewStatusDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.cyan_neon))
+            tvStatus.text = "串流中 · 本地单应用已静音"
+            tvStatus.setTextColor(ContextCompat.getColor(this, R.color.cyan_neon))
+
+            viewDialEdgeDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.cyan_neon))
+            startDialRingSpin()
+        } else {
+            btnMasterDial.setBackgroundResource(R.drawable.bg_dial_idle)
+            tvDialAction.text = "点击开启投送"
+            tvDialAction.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
+            tvDialSubtext.text = "TAP TO ENGAGE"
+            tvDialSubtext.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+
+            layoutStatusPill.setBackgroundResource(R.drawable.bg_pill_status_idle)
+            viewStatusDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.text_muted))
+            tvStatus.text = "待机待命 · 手机扬声器"
+            tvStatus.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+
+            viewDialEdgeDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.cyan_subtle))
+            stopDialRingSpin()
+        }
+    }
+
+    private fun startDialRingSpin() {
+        if (dialRotateAnimation != null) return
+        val rotate = RotateAnimation(
+            0f, 360f,
+            Animation.RELATIVE_TO_SELF, 0.5f,
+            Animation.RELATIVE_TO_SELF, 0.5f
+        ).apply {
+            duration = 22000
+            repeatCount = Animation.INFINITE
+            interpolator = LinearInterpolator()
+        }
+        dialRotateAnimation = rotate
+        viewDialOuterRing.startAnimation(rotate)
+    }
+
+    private fun stopDialRingSpin() {
+        viewDialOuterRing.clearAnimation()
+        dialRotateAnimation = null
+    }
+
+    private fun copyStreamUrlToClipboard() {
+        val url = tvStreamUrl.text.toString()
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("HQPE Stream URL", url)
+        clipboard.setPrimaryClip(clip)
+
+        btnCopyUrl.text = "已复制!"
+        Toast.makeText(this, "推流端点已复制到剪贴板", Toast.LENGTH_SHORT).show()
+        btnCopyUrl.postDelayed({
+            btnCopyUrl.text = "复制"
+        }, 1500)
+    }
+
+    private fun autoDetectLocalIp(showToast: Boolean = false) {
         lifecycleScope.launch(Dispatchers.IO) {
-            val detected = NetworkUtils.getLocalIpAddress(this@MainActivity, targetIp, targetPort)
+            val detected = NetworkUtils.getLocalIpAddress(this@MainActivity, currentHqpeIp, currentHqpePort)
             withContext(Dispatchers.Main) {
-                etLocalIp.setText(detected)
-                updateStreamUrlDisplay()
+                currentLocalIp = detected
+                updateMainScreenViews()
                 saveSettings()
                 if (showToast) {
                     Toast.makeText(this@MainActivity, "已探测并切换至本机局域网 IP: $detected", Toast.LENGTH_SHORT).show()
@@ -194,18 +280,47 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateStreamUrlDisplay() {
-        val localIp = etLocalIp.text?.toString()?.trim().orEmpty()
-        tvStreamUrl.text = if (localIp.isNotEmpty()) {
-            "推流地址: http://$localIp:8088/stream.wav"
-        } else {
-            "推流地址: 请输入本机 IP"
+    private fun getEffectiveControlUrl(): String {
+        val current = activeControlUrl
+        if (current != null) {
+            try {
+                val parsed = URL(current)
+                if (parsed.host == currentHqpeIp && (parsed.port == currentHqpePort || (parsed.port == -1 && currentHqpePort == 80))) {
+                    return current
+                }
+            } catch (_: Exception) {}
         }
+        return "http://$currentHqpeIp:$currentHqpePort/upnp/control/rendertransport"
     }
 
-    private fun initDeviceSpinner() {
-        val initialItems = listOf("手动输入 (默认)")
-        val adapter = ArrayAdapter(this, R.layout.item_spinner_selected, initialItems)
+    private fun openConfigBottomSheet() {
+        val dialog = BottomSheetDialog(this)
+        val sheetView = layoutInflater.inflate(R.layout.dialog_config_bottom_sheet, null)
+        dialog.setContentView(sheetView)
+
+        val btnClose = sheetView.findViewById<ImageButton>(R.id.btn_sheet_close)
+        val spinnerDevices = sheetView.findViewById<Spinner>(R.id.spinner_sheet_devices)
+        val etDevName = sheetView.findViewById<TextInputEditText>(R.id.et_sheet_dev_name)
+        val etHqpeIp = sheetView.findViewById<TextInputEditText>(R.id.et_sheet_hqpe_ip)
+        val etHqpePort = sheetView.findViewById<TextInputEditText>(R.id.et_sheet_hqpe_port)
+        val etLocalIp = sheetView.findViewById<TextInputEditText>(R.id.et_sheet_local_ip)
+        val btnDetectIp = sheetView.findViewById<MaterialButton>(R.id.btn_sheet_detect_ip)
+        val tvControlUrl = sheetView.findViewById<TextView>(R.id.tv_sheet_control_url)
+        val btnSave = sheetView.findViewById<MaterialButton>(R.id.btn_sheet_save)
+
+        // Pre-fill values
+        etDevName.setText(currentDevName)
+        etHqpeIp.setText(currentHqpeIp)
+        etHqpePort.setText(currentHqpePort.toString())
+        etLocalIp.setText(currentLocalIp)
+        tvControlUrl.text = "控制端点: ${getEffectiveControlUrl()}"
+
+        // Populate spinner
+        val spinnerItems = mutableListOf("手动输入 (自定义配置)")
+        if (discoveredDevices.isNotEmpty()) {
+            spinnerItems.addAll(discoveredDevices.map { "${it.friendlyName} (${it.ip}:${it.port})" })
+        }
+        val adapter = ArrayAdapter(this, R.layout.item_spinner_selected, spinnerItems)
         adapter.setDropDownViewResource(R.layout.item_spinner_dropdown)
         spinnerDevices.adapter = adapter
 
@@ -213,45 +328,50 @@ class MainActivity : AppCompatActivity() {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 if (position > 0 && position - 1 < discoveredDevices.size) {
                     val device = discoveredDevices[position - 1]
-                    activeControlUrl = device.controlUrl
+                    etDevName.setText(device.friendlyName)
                     etHqpeIp.setText(device.ip)
                     etHqpePort.setText(device.port.toString())
-                    updateControlUrlDisplay()
-                    autoDetectLocalIp(showToast = false)
-                    Toast.makeText(this@MainActivity, "已选择: ${device.friendlyName}", Toast.LENGTH_SHORT).show()
-                } else {
-                    activeControlUrl = null
-                    updateControlUrlDisplay()
+                    activeControlUrl = device.controlUrl
+                    tvControlUrl.text = "控制端点: ${device.controlUrl}"
                 }
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
-    }
 
-    private fun getEffectiveControlUrl(): String {
-        val ip = etHqpeIp.text?.toString()?.trim().orEmpty()
-        val port = etHqpePort.text?.toString()?.trim()?.toIntOrNull() ?: 49152
-        val current = activeControlUrl
-
-        if (current != null) {
-            try {
-                val parsed = URL(current)
-                if (parsed.host == ip && (parsed.port == port || (parsed.port == -1 && port == 80))) {
-                    return current
+        btnDetectIp.setOnClickListener {
+            val targetIp = etHqpeIp.text?.toString()?.trim() ?: currentHqpeIp
+            val targetPort = etHqpePort.text?.toString()?.trim()?.toIntOrNull() ?: currentHqpePort
+            lifecycleScope.launch(Dispatchers.IO) {
+                val detected = NetworkUtils.getLocalIpAddress(this@MainActivity, targetIp, targetPort)
+                withContext(Dispatchers.Main) {
+                    etLocalIp.setText(detected)
+                    Toast.makeText(this@MainActivity, "已探测本机 IP: $detected", Toast.LENGTH_SHORT).show()
                 }
-            } catch (_: Exception) {}
+            }
         }
 
-        return "http://$ip:$port/upnp/control/rendertransport"
+        btnClose.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        btnSave.setOnClickListener {
+            currentDevName = etDevName.text?.toString()?.trim().let { if (it.isNullOrBlank()) "HQPlayer Embedded" else it }
+            currentHqpeIp = etHqpeIp.text?.toString()?.trim().let { if (it.isNullOrBlank()) "10.10.10.120" else it }
+            currentHqpePort = etHqpePort.text?.toString()?.trim()?.toIntOrNull() ?: 49152
+            currentLocalIp = etLocalIp.text?.toString()?.trim().orEmpty()
+
+            saveSettings()
+            updateMainScreenViews()
+            dialog.dismiss()
+            Toast.makeText(this, "渲染器与推流配置已更新", Toast.LENGTH_SHORT).show()
+        }
+
+        dialog.show()
     }
 
-    private fun updateControlUrlDisplay() {
-        val url = getEffectiveControlUrl()
-        tvControlUrl.text = "控制端点: $url"
-    }
-
-    private fun startScanAnimation() {
+    private fun performSsdpScan() {
+        btnScanDevices.isEnabled = false
         val rotate = RotateAnimation(
             0f, 360f,
             Animation.RELATIVE_TO_SELF, 0.5f,
@@ -262,16 +382,7 @@ class MainActivity : AppCompatActivity() {
             interpolator = LinearInterpolator()
         }
         btnScanDevices.startAnimation(rotate)
-    }
-
-    private fun stopScanAnimation() {
-        btnScanDevices.clearAnimation()
-    }
-
-    private fun performSsdpScan() {
-        btnScanDevices.isEnabled = false
-        startScanAnimation()
-        tvScanHint.text = "正在扫描局域网 MediaRenderer/HQPE..."
+        Toast.makeText(this, "正在扫描局域网 MediaRenderer/HQPE...", Toast.LENGTH_SHORT).show()
 
         lifecycleScope.launch {
             try {
@@ -280,20 +391,20 @@ class MainActivity : AppCompatActivity() {
                 discoveredDevices.addAll(devices)
 
                 if (devices.isEmpty()) {
-                    tvScanHint.text = "未扫描到 DLNA 设备，可直接手动输入 IP 与端口"
-                    Toast.makeText(this@MainActivity, "未扫描到设备，可直接手动输入 IP 与端口", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, "未扫描到 DLNA 设备，已保留当前配置", Toast.LENGTH_LONG).show()
                 } else {
-                    tvScanHint.text = "已扫描到 ${devices.size} 台媒体设备，已自动选择首选设备"
-                    val spinnerItems = mutableListOf("手动输入 (自定义)")
-                    spinnerItems.addAll(devices.map { "${it.friendlyName} (${it.ip}:${it.port})" })
-
-                    val adapter = ArrayAdapter(this@MainActivity, R.layout.item_spinner_selected, spinnerItems)
-                    adapter.setDropDownViewResource(R.layout.item_spinner_dropdown)
-                    spinnerDevices.adapter = adapter
-                    spinnerDevices.setSelection(1) // Auto-select the first discovered device
+                    val first = devices[0]
+                    currentDevName = first.friendlyName
+                    currentHqpeIp = first.ip
+                    currentHqpePort = first.port
+                    activeControlUrl = first.controlUrl
+                    updateMainScreenViews()
+                    saveSettings()
+                    autoDetectLocalIp(showToast = false)
+                    Toast.makeText(this@MainActivity, "已自动连接发现的首选设备: ${first.friendlyName}", Toast.LENGTH_SHORT).show()
                 }
             } finally {
-                stopScanAnimation()
+                btnScanDevices.clearAnimation()
                 btnScanDevices.isEnabled = true
             }
         }
@@ -301,24 +412,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadSavedSettings() {
         val prefs = getSharedPreferences("hqpe_config", Context.MODE_PRIVATE)
-        val savedIp = prefs.getString("hqpe_ip", "10.10.10.120")
-        val savedPort = prefs.getString("hqpe_port", "49152")
-        val savedLocalIp = prefs.getString("hqpe_local_ip", null)
+        currentDevName = prefs.getString("hqpe_dev_name", "HQPlayer Embedded") ?: "HQPlayer Embedded"
+        currentHqpeIp = prefs.getString("hqpe_ip", "10.10.10.120") ?: "10.10.10.120"
+        currentHqpePort = prefs.getString("hqpe_port", "49152")?.toIntOrNull() ?: 49152
+        currentLocalIp = prefs.getString("hqpe_local_ip", "").orEmpty()
         activeControlUrl = prefs.getString("hqpe_control_url", null)
-
-        etHqpeIp.setText(savedIp)
-        etHqpePort.setText(savedPort)
-        if (!savedLocalIp.isNullOrBlank()) {
-            etLocalIp.setText(savedLocalIp)
-        }
     }
 
     private fun saveSettings() {
         val prefs = getSharedPreferences("hqpe_config", Context.MODE_PRIVATE)
         prefs.edit()
-            .putString("hqpe_ip", etHqpeIp.text?.toString()?.trim())
-            .putString("hqpe_port", etHqpePort.text?.toString()?.trim())
-            .putString("hqpe_local_ip", etLocalIp.text?.toString()?.trim())
+            .putString("hqpe_dev_name", currentDevName)
+            .putString("hqpe_ip", currentHqpeIp)
+            .putString("hqpe_port", currentHqpePort.toString())
+            .putString("hqpe_local_ip", currentLocalIp)
             .putString("hqpe_control_url", activeControlUrl)
             .apply()
     }
@@ -349,13 +456,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun startCaptureAndHqpePlayback(resultCode: Int, resultData: Intent) {
         val controlUrl = getEffectiveControlUrl()
-        val localIp = etLocalIp.text?.toString()?.trim().let {
-            if (it.isNullOrBlank()) NetworkUtils.getLocalIpAddress(this, etHqpeIp.text?.toString(), etHqpePort.text?.toString()?.toIntOrNull() ?: 80)
-            else it
-        }
+        val localIp = if (currentLocalIp.isNotBlank()) currentLocalIp else NetworkUtils.getLocalIpAddress(this, currentHqpeIp, currentHqpePort)
         val streamUrl = "http://$localIp:8088/stream.wav"
 
-        tvStatus.text = "状态: 正在启动音频捕获与 HTTP 服务..."
+        tvStatus.text = "启动音频捕获与 HTTP 服务..."
 
         // 1. Start MediaCaptureService
         val serviceIntent = Intent(this, MediaCaptureService::class.java).apply {
@@ -369,32 +473,32 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             delay(500)
 
-            tvStatus.text = "状态: 正在向 $controlUrl 设置推流地址..."
+            tvStatus.text = "向 HQPE 设置推流端点..."
             val setUriResult = HqpeClient.setUri(controlUrl, streamUrl)
             if (setUriResult.isFailure) {
                 val err = setUriResult.exceptionOrNull()?.message ?: "未知网络错误"
-                tvStatus.text = "状态: SetAVTransportURI 失败 ($err)"
+                tvStatus.text = "SetAVTransportURI 失败 ($err)"
                 Toast.makeText(this@MainActivity, "连接 HQPE 失败: $err", Toast.LENGTH_LONG).show()
                 return@launch
             }
 
-            tvStatus.text = "状态: 正在触发播放 (Play)..."
+            tvStatus.text = "正在触发播放 (Play)..."
             val playResult = HqpeClient.play(controlUrl)
             if (playResult.isFailure) {
                 val err = playResult.exceptionOrNull()?.message ?: "未知网络错误"
-                tvStatus.text = "状态: Play 失败 ($err)"
+                tvStatus.text = "Play 失败 ($err)"
                 Toast.makeText(this@MainActivity, "HQPE Play 指令失败: $err", Toast.LENGTH_LONG).show()
                 return@launch
             }
 
-            tvStatus.text = "状态: 正在向 HQPE 成功推流中 ($streamUrl)"
+            tvStatus.text = "串流中 · 手机已静音"
         }
     }
 
     private fun stopCaptureAndHqpe() {
         val controlUrl = getEffectiveControlUrl()
 
-        tvStatus.text = "状态: 正在向 HQPE 发送 Stop 指令..."
+        tvStatus.text = "正在向 HQPE 发送 Stop 指令..."
 
         lifecycleScope.launch {
             val stopResult = HqpeClient.stop(controlUrl)
@@ -409,7 +513,7 @@ class MainActivity : AppCompatActivity() {
             }
             startService(serviceIntent)
 
-            tvStatus.text = "状态: 已停止投送"
+            tvStatus.text = "待机待命 · 手机扬声器"
         }
     }
 }

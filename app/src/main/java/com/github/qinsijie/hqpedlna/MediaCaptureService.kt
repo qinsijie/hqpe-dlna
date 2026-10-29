@@ -32,6 +32,9 @@ data class CaptureDiagnostics(
     val isRunning: Boolean = false,
     val bytesPerSecond: Long = 0,
     val rmsDecibels: Double = -96.0,
+    val sampleRate: Int = 48000,
+    val bitsPerSample: Int = 16,
+    val channels: Int = 2,
     val isSilent: Boolean = false,
     val errorMessage: String? = null
 )
@@ -338,6 +341,9 @@ class MediaCaptureService : Service() {
                                 isRunning = true,
                                 bytesPerSecond = rate,
                                 rmsDecibels = currentRmsDb,
+                                sampleRate = sampleRate,
+                                bitsPerSample = 16,
+                                channels = 2,
                                 isSilent = isSilent
                             )
 
